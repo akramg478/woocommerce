@@ -9,7 +9,7 @@ use Automattic\WooCommerce\Internal\RegisterHooksInterface;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Adds the WooCommerce > Settings > Agentic commerce tab while the
+ * Adds the WooCommerce > Settings > WooCommerce AI tab while the
  * agent_readiness feature is enabled, and names the options it saves.
  *
  * @since 11.4.0
@@ -19,6 +19,12 @@ class AgenticCommerceSettings implements RegisterHooksInterface {
 	public const FEATURE_ID = 'agent_readiness';
 
 	public const TAB = 'agentic-commerce';
+
+	/**
+	 * Section with the AI shopping settings. Here, not on the page class, so code that runs
+	 * outside the settings screen (the scan) can link to it without loading WC_Settings_Page.
+	 */
+	public const SHOPPING_SECTION = 'shopping';
 
 	public const PRIVACY_PAGE_OPTION = 'wp_page_for_privacy_policy';
 
@@ -57,13 +63,6 @@ class AgenticCommerceSettings implements RegisterHooksInterface {
 	private AgentReadiness $agent_readiness;
 
 	/**
-	 * UCP switch.
-	 *
-	 * @var UcpSwitch
-	 */
-	private UcpSwitch $ucp_switch;
-
-	/**
 	 * Background scan.
 	 *
 	 * @var ScheduledScan
@@ -78,14 +77,12 @@ class AgenticCommerceSettings implements RegisterHooksInterface {
 	 * @param FeaturesController $features_controller Features controller.
 	 * @param StoreConditions    $store_conditions    Store conditions.
 	 * @param AgentReadiness     $agent_readiness     Readiness service.
-	 * @param UcpSwitch          $ucp_switch          UCP switch.
 	 * @param ScheduledScan      $scheduled_scan      Background scan.
 	 */
-	final public function init( FeaturesController $features_controller, StoreConditions $store_conditions, AgentReadiness $agent_readiness, UcpSwitch $ucp_switch, ScheduledScan $scheduled_scan ): void {
+	final public function init( FeaturesController $features_controller, StoreConditions $store_conditions, AgentReadiness $agent_readiness, ScheduledScan $scheduled_scan ): void {
 		$this->features_controller = $features_controller;
 		$this->store_conditions    = $store_conditions;
 		$this->agent_readiness     = $agent_readiness;
-		$this->ucp_switch          = $ucp_switch;
 		$this->scheduled_scan      = $scheduled_scan;
 	}
 
@@ -120,7 +117,7 @@ class AgenticCommerceSettings implements RegisterHooksInterface {
 		if ( ! is_array( $pages ) || ! class_exists( \WC_Settings_Page::class, false ) ) {
 			return $pages;
 		}
-		$pages[] = new AgenticCommerceSettingsPage( $this->store_conditions, $this->agent_readiness, $this->ucp_switch, $this->scheduled_scan );
+		$pages[] = new AgenticCommerceSettingsPage( $this->store_conditions, $this->agent_readiness, $this->scheduled_scan );
 		return $pages;
 	}
 }

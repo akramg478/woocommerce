@@ -92,7 +92,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 
 		$html = $this->render_page();
 
-		$this->assertStringContainsString( 'Product counts appear after the first agent readiness check.', $html );
+		$this->assertStringContainsString( 'Product counts appear after the first readiness check.', $html );
 		$this->assertStringNotContainsString( 'View products', $html );
 		$this->assertStringContainsString( 'Published returns page', $html );
 		$this->assertStringNotContainsString( 'Draft returns page', $html );
@@ -108,12 +108,11 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 
 		$html = $this->render_page();
 
-		$this->assertStringContainsString( '<span>Available to agents</span> <strong>1</strong>', $html );
-		$this->assertStringContainsString( '<span>Not supported yet</span> <strong>1</strong>', $html );
-		$this->assertStringContainsString( 'Simple and variable products only, for now.', $html );
+		$this->assertStringContainsString( '<span>Visible</span> <strong>1</strong>', $html );
+		$this->assertMatchesRegularExpression( '#<span>Not supported <span class="woocommerce-help-tip"[^>]*grouped, external[^>]*></span></span> <strong>1</strong>#', $html, 'Not supported says which types, in a help tip' );
+		$this->assertStringContainsString( '>View products</a>', $html );
 		$this->assertStringNotContainsString( 'aren&#039;t shown', $html );
-		$this->assertStringContainsString( '<span>Available to agents</span> <strong>1</strong></li>', $html, 'No list matches the available count, so it has no link' );
-		$this->assertStringContainsString( 'product_type=simple,variable&#038;product_visibility=exclude-from-catalog', $html, 'The hidden link matches its count' );
+		$this->assertMatchesRegularExpression( '#<p>\d+ required steps? to fix so AI assistants can shop your store\.</p>#', $html, 'Status counts the required steps first' );
 		$this->assertStringContainsString( 'aria-checked="false"', $html );
 		$this->assertStringNotContainsString( 'to turn this on', $html, 'Failing checks never block the switch' );
 		$this->assertMatchesRegularExpression( '/but \d+ required setup checks? below still needs? fixing\./', (string) wp_scripts()->get_data( 'wc-agentic-commerce-settings', 'data' ), 'Turning the switch on shows the failing checks without a reload' );
@@ -256,12 +255,15 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 	 * @testdox With UCP already on and a required check failing, the switch says the checks still need fixing.
 	 */
 	public function test_output_switch_on_with_failing_checks(): void {
+		global $current_section;
 		$page = $this->page();
 		update_option( 'woocommerce_feature_ucp_enabled', 'yes' );
 
+		$current_section = AgenticCommerceSettingsPage::SECTION_SHOPPING;
 		ob_start();
 		$page->output();
-		$html = (string) ob_get_clean();
+		$html            = (string) ob_get_clean();
+		$current_section = '';
 
 		$this->assertStringContainsString( 'aria-checked="true"', $html );
 		$this->assertStringContainsString( 'required setup checks below still need fixing.', $html );
@@ -417,7 +419,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$this->assertStringContainsString( 'agent_readiness=', $html, 'The link opens the Products list filtered to the failing products' );
 		$this->assertStringNotContainsString( 'main image has no alt text', $html, 'Store readiness covers alt text' );
 		$this->assertStringNotContainsString( 'post=' . $product->get_id(), $html, 'No example products' );
-		$this->assertStringContainsString( 'Last checked', $html );
+		$this->assertStringContainsString( '<p>Last checked today at ', $html );
 		$this->assertStringContainsString( 'Let search engines index your store', $this->render_page(), 'Hidden from search engines is a Recommended setup step' );
 	}
 
@@ -458,7 +460,10 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 			false
 		);
 
-		$this->assertSame( array( '', 'readiness' ), array_keys( $this->page()->get_sections() ) );
+		$this->assertSame( array( '', 'shopping', 'readiness' ), array_keys( $this->page()->get_sections() ) );
+		$landing = $this->render_page( '' );
+		$this->assertStringContainsString( 'section=shopping">Set up AI shopping</a>', $landing, 'The landing page links to AI shopping' );
+		$this->assertTrue( $this->save_hidden, 'The landing page has nothing to save' );
 
 		$html = $this->render_page();
 		$this->assertMatchesRegularExpression( '#section=readiness">Readiness check</a> <mark[^>]*>2 issues</mark>#', $html, 'One store and one product issue; the alt text check is not counted' );
@@ -548,7 +553,8 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 
 		$html = $this->render_page( AgenticCommerceSettingsPage::SECTION_READINESS );
 		$this->assertDoesNotMatchRegularExpression( '/wc-agentic-commerce-run"[^>]*disabled/', $html );
-		$this->assertStringContainsString( 'Results appear after the first agent readiness check.', $html, 'No results before the first scan' );
+		$this->assertStringContainsString( 'Run a check to see what AI assistants get', $html, 'No results before the first scan' );
+		$this->assertStringContainsString( '<p>Not checked yet</p>', $html );
 		$this->assertStringNotContainsString( 'Can shopping channels list your products?', $html );
 
 		wc_get_container()->get( ScheduledScan::class )->queue();
@@ -600,7 +606,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		update_option( AgenticCommerceSettings::REFUND_RETURNS_PAGE_OPTION, $draft );
 		update_option( AgenticCommerceSettings::FAQ_PAGE_OPTION, $old_faq );
 
-		$settings = $this->page()->get_settings_for_section( '' );
+		$settings = $this->page()->get_settings_for_section( AgenticCommerceSettingsPage::SECTION_SHOPPING );
 		$refund   = current( wp_list_filter( $settings, array( 'id' => AgenticCommerceSettings::REFUND_RETURNS_PAGE_OPTION ) ) );
 		$terms    = current( wp_list_filter( $settings, array( 'id' => AgenticCommerceSettings::TERMS_PAGE_OPTION ) ) );
 		$this->assertSame( 'Returns draft (Draft)', $refund['options'][ (string) $draft ], 'The stored draft is listed with its status' );
@@ -639,7 +645,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		);
 		update_option( 'woocommerce_checkout_page_id', $checkout );
 		$terms_field = array();
-		foreach ( $this->page()->get_settings_for_section( '' ) as $field ) {
+		foreach ( $this->page()->get_settings_for_section( AgenticCommerceSettingsPage::SECTION_SHOPPING ) as $field ) {
 			if ( AgenticCommerceSettings::TERMS_PAGE_OPTION === ( $field['id'] ?? '' ) ) {
 				$terms_field = $field;
 			}
@@ -647,7 +653,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$this->assertArrayNotHasKey( (string) $checkout, $terms_field['options'], 'The checkout page is not offered' );
 
 		WC_Admin_Settings::save_fields(
-			$this->page()->get_settings_for_section( '' ),
+			$this->page()->get_settings_for_section( AgenticCommerceSettingsPage::SECTION_SHOPPING ),
 			array( AgenticCommerceSettings::TERMS_PAGE_OPTION => (string) $checkout )
 		);
 
@@ -667,7 +673,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		update_option( AgenticCommerceSettings::TERMS_PAGE_OPTION, $published );
 
 		WC_Admin_Settings::save_fields(
-			$this->page()->get_settings_for_section( '' ),
+			$this->page()->get_settings_for_section( AgenticCommerceSettingsPage::SECTION_SHOPPING ),
 			array( AgenticCommerceSettings::TERMS_PAGE_OPTION => '' )
 		);
 
@@ -697,7 +703,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 	 *
 	 * @param string $section Section id.
 	 */
-	private function render_page( string $section = '' ): string {
+	private function render_page( string $section = AgenticCommerceSettingsPage::SECTION_SHOPPING ): string {
 		global $current_section;
 		// Localized data accumulates on a registered handle, so start each render clean.
 		wp_deregister_script( 'wc-agentic-commerce-settings' );

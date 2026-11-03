@@ -9848,6 +9848,37 @@ body.woocommerce-settings-payments-section_legacy {
 	}
 }
 
+.wc-agentic-commerce-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: 16px;
+	margin-block: 16px 20px;
+
+	p {
+		margin: 4px 0 0;
+		color: #757575;
+	}
+}
+
+.wc-agentic-commerce-breadcrumb {
+	font-size: 14px;
+
+	a {
+		color: inherit;
+	}
+
+	[aria-current] {
+		font-weight: 600;
+	}
+}
+
+.wc-agentic-commerce-header__action {
+	flex: none;
+	text-align: end;
+	max-inline-size: 320px;
+}
+
 .wc-agentic-commerce-counts {
 	display: grid;
 	grid-template-columns: repeat(3, 1fr);
@@ -9864,6 +9895,14 @@ body.woocommerce-settings-payments-section_legacy {
 
 	li + li {
 		border-inline-start: 1px solid #f0f0f1;
+	}
+
+	li > span {
+		color: #757575;
+		font-size: 11px;
+		font-weight: 500;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
 	}
 
 	strong {

@@ -9,7 +9,6 @@
 	const toggle = document.querySelector( '.wc-agentic-commerce-ucp-switch' );
 	const knob = toggle && toggle.querySelector( '.woocommerce-input-toggle' );
 	const message = document.querySelector( '.wc-agentic-commerce-ucp-message' );
-	const statusBadge = document.querySelector( '.wc-agentic-commerce-status' );
 
 	const render = ( enabled ) => {
 		toggle.setAttribute( 'aria-checked', enabled ? 'true' : 'false' );
@@ -17,17 +16,6 @@
 		knob.classList.toggle( 'woocommerce-input-toggle--disabled', ! enabled );
 	};
 
-	const renderStatus = ( status ) => {
-		if ( ! statusBadge || ! settings.i18n.statusLabel[ status ] ) {
-			return;
-		}
-		statusBadge.textContent = settings.i18n.statusLabel[ status ];
-		statusBadge.className = statusBadge.className.replace(
-			/wc-agentic-commerce-badge--\w+/,
-			'wc-agentic-commerce-badge--' +
-				( { active: 'pass', off: 'off', needs_attention: 'fix' }[ status ] || 'off' )
-		);
-	};
 
 	if ( toggle && knob && message ) {
 		toggle.addEventListener( 'click', async () => {
@@ -41,7 +29,6 @@
 					data: { enabled: enable },
 				} );
 				render( response.enabled );
-				renderStatus( response.status );
 				message.textContent = response.enabled ? settings.i18n.on : '';
 			} catch ( error ) {
 				render( ! enable );
@@ -94,6 +81,18 @@
 		} );
 		details.append( hide );
 		details.classList.add( 'wc-agentic-commerce-more--js' );
+		// The summary hides once open, so focus moves to what it revealed.
+		details.addEventListener( 'toggle', () => {
+			const active = details.ownerDocument.activeElement;
+			if ( ! details.open || ( active !== summary && active !== details.ownerDocument.body ) ) {
+				return;
+			}
+			const revealed = summary.nextElementSibling;
+			if ( revealed && revealed !== hide ) {
+				revealed.tabIndex = -1;
+				revealed.focus();
+			}
+		} );
 	} );
 
 	document.querySelectorAll( '.wc-agentic-commerce-copy' ).forEach( ( button ) => {
