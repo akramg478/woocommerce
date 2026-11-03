@@ -1,375 +1,99 @@
-# SQL Query Patterns: Performance Anti-patterns and Fixes
+# SQL query patterns
 
-**When to use:** Writing or reviewing any SQL query in WooCommerce PHP code — joins, aggregates, meta lookups, or range queries. Apply proactively when generating new code, or flag violations when reviewing.
+Use for WooCommerce query generation and review. These are conditional optimization candidates, not automatic rewrites. For indexes, large writes and benchmarking, also read [database operations](database-operations.md).
 
----
+## Establish the question before changing its SQL
 
-## Cross-cutting: safe `IN (...)` list construction
+Record the eligible entities and the unit being counted: orders, parent products, variations, terms, or metadata rows. Check publication, visibility, stock, custom statuses/types, NULLs, duplicate metadata, missing rows, ordering, pagination, and result types. HPOS and posts storage can require different plans and predicates.
 
-All patterns that build a dynamic `IN (...)` list share two requirements:
+A count must describe the same population as its corresponding ID selector. Two counts added together may intentionally count an overlapping row twice; one ordered CASE counts it at most once. Moving a branch's condition into a shared WHERE can remove rows another branch previously included. Exercise a truth table of the old and new predicates before pursuing small per-row CPU savings. The [#69360 review](https://github.com/woocommerce/woocommerce/pull/69360#discussion_r4445338840) supplies a counterexample to a proposed CASE simplification; the proposal alone is not an equivalence proof.
 
-**1. Guard against empty input** — `WHERE col IN ()` is a MySQL syntax error. Always check before building the query:
+SQL equality also depends on collation and coercion. Case-insensitive comparisons can merge distinct custom status strings. A row count equal to the number of children does not prove each child is represented when metadata allows duplicates. For exact agreement, establish identity coverage and comparison semantics; a bounded ID/value read followed by strict PHP comparison may be clearer. The [child-stock review](https://github.com/woocommerce/woocommerce/pull/68546#discussion_r4445639644) illustrates these identity/collation questions; its proposed rewrite is not a general equivalence proof.
 
-```php
-if ( empty( $ids ) ) {
-    return array(); // never reach the SQL
-}
-$placeholders = implode( ',', array_map( 'absint', $ids ) );
-```
+Moving grouping/deduplication between SQL and PHP also changes equality and key normalization. [#66853](https://github.com/woocommerce/woocommerce/pull/66853) repaired batched variation-attribute keys using the existing WordPress canonicalization, not the SQL LOWER described in its stale body. Validate filter results before introducing stricter array operations, while preserving the established return contract: [#66810](https://github.com/woocommerce/woocommerce/pull/66810) restored legacy pass-through rather than silently converting malformed values to an empty array.
 
-**2. Sanitize values** — Use `array_map('absint', $ids)` for integer ID lists. For string values, use `$wpdb->prepare()` with `%s` placeholders or `esc_sql()`. Never interpolate unsanitized input.
+## Preserve identity unions and key/value pairing
 
-```php
-// Integer IDs (products, terms, orders):
-$in_sql = implode( ',', array_map( 'absint', $ids ) );
-$sql    = "WHERE product_id IN ($in_sql)";
+A known account ID does not subsume guest purchases by billing email, even when the email matches that account. Preserve every identity the API promises. A boolean existence check can stop after a positive branch; a negative branch must fall through. A cached collection or count needs the complete qualifying union, with overlap deduplicated where required. The later [guest-order correction #65517](https://github.com/woocommerce/woocommerce/pull/65517) qualifies the earlier optimization in [#63995](https://github.com/woocommerce/woocommerce/pull/63995).
 
-// String values (slugs, statuses):
-$placeholders = implode( ',', array_fill( 0, count( $values ), '%s' ) );
-$sql = $wpdb->prepare( "WHERE stock_status IN ($placeholders)", ...$values );
-```
-
----
-
-## Pattern A — Redundant posts join (flag this)
-
-**Only join `wp_posts` when you need a column from it.**
-
-When a query receives `$product_ids` from an upstream `WP_Query` that explicitly enforced both `post_type='product'` **and** `post_status='publish'`, the `wp_posts` join adds no new filtering. A `WP_Query` result qualifies; a raw ID list from user input or a query that only enforced one of the two constraints does not.
-
-| You need from `wp_posts`                                                   | Join required?                               |
-|----------------------------------------------------------------------------|----------------------------------------------|
-| `post_type`, `post_status`, `post_author`                                  | Yes                                          |
-| `post_date`, `post_content`, `post_title`                                  | Yes                                          |
-| Only `ID` — upstream enforced `post_type` **and** `post_status`            | **No — drop it**                             |
-| Only `ID` — upstream enforced one or neither constraint                    | Yes (to enforce the missing constraint)      |
-| Only `ID` — IDs from user input or external source                         | Yes (must enforce `post_type`/`post_status`) |
+When keys have different value domains, keep their pairs together:
 
 ```sql
--- Redundant: posts joined only to use posts.ID
-SELECT terms.term_id, COUNT(DISTINCT posts.ID) AS term_count
-FROM wp_posts
-INNER JOIN wp_term_relationships ON posts.ID = term_relationships.object_id
-INNER JOIN wp_term_taxonomy       USING (term_taxonomy_id)
-INNER JOIN wp_terms               USING (term_id)
-WHERE posts.post_type   = 'product'
-  AND posts.post_status = 'publish'
-  AND posts.ID IN (1, 2, 3, ...)      -- already guaranteed by upstream WP_Query
-  AND terms.term_id IN (10, 20, 30)
-GROUP BY terms.term_id
+WHERE (meta_key = '_customer_user' AND meta_value = '12')
+   OR (meta_key = '_billing_email' AND meta_value = 'buyer@example.test')
 ```
 
-**Fix — drive from the narrow side, drop posts:**
+Independent key and value IN lists also match unintended cross-pairs. Pairing restores the intended predicate; it does not guarantee a faster plan when both branches remain necessary. Likewise, OR across indexed columns can use index merge or another plan: neither textual predicate order nor a resolved identity guarantees a particular access method.
+
+## Remove joins only after proving their contribution is redundant
+
+A posts join may enforce existence, type, publication, or other eligibility even if SELECT only uses its ID. Remove it only when the final incoming ID set already guarantees every such condition, including after filters and cache invalidation. The fact that IDs originated from a WP_Query is not sufficient by itself.
+
+[#65141](https://github.com/woocommerce/woocommerce/pull/65141) removes a posts join from counts over already-filtered product IDs. That does not authorize dropping publication checks from unfiltered lookup queries. Compare actual selectivity and cardinality; neither FROM order nor the name of the smallest table dictates the optimizer's driving table.
+
+When a framework filter is expensive over the whole store, first derive the smaller valid candidate set, then keep the framework's eligibility checks. In [#66786](https://github.com/woocommerce/woocommerce/pull/66786#discussion_r3614242300), the query narrowed role checks to token authors instead of enumerating all users with a role. Eligibility still precedes pagination so pages and totals stay correct. The same query count can do much less work; do not bypass role/site checks or mistake this for a universal constant-time plan.
+
+## Express membership without multiplying rows
+
+When related rows only establish eligibility, compare an IN/EXISTS form with the current join. Joining several one-to-many relations can multiply intermediate rows before DISTINCT or GROUP BY removes duplicates. A membership predicate expresses that duplicates in the qualifying relation need not multiply the result.
+
+Preserve unmatched-row behavior: replacing a LEFT JOIN with membership loses unmatched rows unless existing predicates already require a match. Preserve taxonomy transformation, child expansion, empty-list behavior and extension hooks when replacing WP_Tax_Query-generated SQL. If related columns or multiplicity are needed, retain the appropriate join.
+
+The engine chooses the semijoin strategy. IN does not force materialization or guarantee linear work. In MySQL EXPLAIN, `Start temporary`/`End temporary` describe Duplicate Weedout; `MATERIALIZED`/`<subqueryN>` indicate a materialized subquery. Verify the selected plan. [MySQL semijoin documentation](https://dev.mysql.com/doc/refman/8.4/en/semijoins-antijoins.html).
+
+The [#65119](https://github.com/woocommerce/woocommerce/pull/65119) taxonomy rewrite improved dense matching sets but regressed its sparse 50K-product sample. Test relationship density as well as table size. [#69321](https://github.com/woocommerce/woocommerce/pull/69321#discussion_r4193316278) illustrates proposing membership before forcing join order; neither shape is universally faster.
+
+## Consolidate repeated work over the same bounded population
+
+Compare GROUP BY or conditional aggregation with repeated queries when they scan substantially the same population. Keep requested status/term predicates, zero buckets, original result types, and COUNT versus COUNT DISTINCT semantics. Do not replace several selective point lookups with an unrestricted full-table aggregation merely to reduce statement count.
+
+In [#69320](https://github.com/woocommerce/woocommerce/pull/69320), conditional DISTINCT counts preserve duplicate-metadata behavior and custom status keys. An empty status list remains a valid filter result and returns before SQL construction. The [review accepted that guard](https://github.com/woocommerce/woocommerce/pull/69320#discussion_r4337958438). Test empty, missing, duplicate and custom values rather than only ordinary populated fixtures.
+
+Remove ORDER BY when the caller needs only existence or an unordered set and ordering does not determine membership through LIMIT/OFFSET or another consumer. A top-N set still needs its ordering to choose the rows. Remove grouping only when it cannot affect multiplicity or aggregate meaning after all query filters run. Preserve pagination offsets. [#65413](https://github.com/woocommerce/woocommerce/pull/65413) targets a narrow primary-key/no-join case, not arbitrary single-table GROUP BY; [#70121](https://github.com/woocommerce/woocommerce/pull/70121) removes unneeded sorting from IDs used as a set.
+
+## Keep specialized fast paths narrow and bounded
+
+A per-status UNION can use a `(type,status,date)` index for each fixed-status branch and merge a small ordered page. That does not make it useful for full counts, deep offsets, arbitrary filters or all database setups. In [#65663](https://github.com/woocommerce/woocommerce/pull/65663#pullrequestreview-4478443894), a large Vitess store benefited while ordinary setups were slightly slower. The accepted implementation validates query shape, caps branch/page work, preserves externally changed SQL and retains the original fallback. Its size threshold is a local policy, not a universal crossover point. Include the cost of deciding whether to use the fast path.
+
+Compare the **executed** SQL after framework hooks, not just the generated string. In [#66111](https://github.com/woocommerce/woocommerce/pull/66111#discussion_r3543439014), a request filter accidentally disabled WordPress's ID-only split query and fetched full rows. The fix preserved the framework optimization; the overall PR later closed unmerged. Restrict textual SQL edits to the intended clause so literals and extension-supplied syntax are not rewritten accidentally.
+
+## Use lookup tables when their meaning and freshness fit
+
+WooCommerce's product lookup tables can avoid expensive metadata access, but they are derived data:
+
+- `wc_product_meta_lookup` supplies product/variation scalars. It does not carry post status or type; retain the necessary posts predicates or a proven eligible ID set.
+- `wc_product_attributes_lookup` includes taxonomy, parent/variation identity and stock information. Choose the correct identity for counts and preserve DISTINCT/visibility behavior. It is not automatically faster than term relationships.
+- Check the existing lifecycle: product-meta regeneration is indicated by `woocommerce_product_lookup_table_is_generating`; attribute lookup use requires `woocommerce_attribute_lookup_enabled === 'yes'`. These are different conditions. Deferred updates or out-of-band imports can still make an enabled lookup stale.
+- Reuse the area's established fallback and acceptable freshness. Regeneration code must read authoritative source data, not the derived rows it is rebuilding.
+- For fields used by the fast path, compare normal-save and full-regeneration derivations and test their intended agreement. A completed rebuild does not prove equivalent meaning: [#43011](https://github.com/woocommerce/woocommerce/pull/43011) corrected rebuilt sale flags that omitted the regular-price comparison.
+
+The [#63043](https://github.com/woocommerce/woocommerce/pull/63043) downloadable lookup serves an editor capability heuristic; its omission of publish/type predicates is not a general equivalence proof. [#65141](https://github.com/woocommerce/woocommerce/pull/65141) retained term relationships for one attribute-count path after comparing alternatives. Read the current schema in `WC_Install` and the relevant lookup data store/regenerator instead of copying a static index catalogue.
+
+## Compare MIN/MAX with ordered endpoint probes
+
+First inspect the existing plan: the engine may already optimize MIN/MAX through an index. If it scans many rows, test two ordered LIMIT 1 probes while retaining all eligibility predicates and aggregate result shape:
 
 ```sql
--- Optimal: starts from term_taxonomy (~174 rows for a taxonomy)
-SELECT terms.term_id, COUNT(DISTINCT term_relationships.object_id) AS term_count
-FROM wp_term_relationships
-INNER JOIN wp_term_taxonomy USING (term_taxonomy_id)
-INNER JOIN wp_terms         USING (term_id)
-WHERE term_relationships.object_id IN (1, 2, 3, ...)
-  AND terms.term_id IN (10, 20, 30)
-GROUP BY terms.term_id
-```
-
-**Why it matters:** `wp_posts` is the largest table. Starting from `wp_term_taxonomy` gives the optimizer a narrow driving side (~174 rows for a product taxonomy) versus starting from `wp_posts` or the `(product × term)` cross-product in a lookup table (~25k rows). Eliminating the join also prevents the fan-out problem (Pattern C).
-
-**Canonical example:** `FilterData::get_attribute_counts` in `src/Internal/ProductFilters/FilterData.php`.
-
----
-
-## Pattern B — Necessary posts join
-
-When there is no upstream product ID pre-filter, `wp_posts` must be joined to enforce `post_type` and `post_status`:
-
-```sql
-SELECT terms.term_id, COUNT(DISTINCT posts.ID) AS term_count
-FROM wp_posts
-INNER JOIN wp_term_relationships ON posts.ID = term_relationships.object_id
-INNER JOIN wp_term_taxonomy       USING (term_taxonomy_id)
-INNER JOIN wp_terms               USING (term_id)
-WHERE posts.post_type   = 'product'
-  AND posts.post_status = 'publish'
-  AND terms.term_id IN (10, 20, 30)
-GROUP BY terms.term_id
-```
-
-This is correct — do not remove it.
-
----
-
-## Pattern C — Fan-out JOIN on `wp_term_relationships` (flag this)
-
-A fan-out occurs when `wp_term_relationships` is joined on `object_id` alone without also constraining `term_taxonomy_id`. Every product matched by the outer filter may appear in `wp_term_relationships` multiple times (once per category, tag, attribute, etc.), multiplying intermediate rows by the average number of taxonomy terms per product.
-
-**Example at scale:** 24k products × 8 attribute terms × 7 category entries per product ≈ 1.34M intermediate rows from a query that should touch ~192k rows.
-
-**Detection:** A join on `term_relationships.object_id` where `term_taxonomy_id` is not also constrained in the `JOIN ON` or a tight `WHERE` clause.
-
-**Fix options:**
-
-1. Add `AND term_taxonomy_id = <id>` to the join condition.
-2. Replace the fan-out join entirely with a subquery:
-
-```sql
--- Replaces: LEFT JOIN wp_term_relationships ON posts.ID = term_relationships.object_id
--- With:
-WHERE posts.ID IN (
-    SELECT object_id FROM wp_term_relationships
-    WHERE term_taxonomy_id IN (...)
-)
-```
-
-This is what `TaxQuery` (`src/Internal/ProductAttributesLookup/TaxQuery.php`) does for the `IN` operator — it intercepts `WP_Tax_Query`'s default fan-out `LEFT JOIN` and replaces it with a pre-materialized subquery.
-
----
-
-## Pattern D — N-query loop (flag this)
-
-Issuing one query per status/term/attribute in a loop is always worse than a single aggregated query. Collapse with `GROUP BY`.
-
-```php
-// Before: N queries
-foreach ( $statuses as $status ) {
-    $counts[ $status ] = $wpdb->get_var(
-        $wpdb->prepare( "SELECT COUNT(*) FROM ... WHERE stock_status = %s", $status )
-    );
-}
-
-// After: 1 query
-$rows = $wpdb->get_results(
-    "SELECT stock_status, COUNT(DISTINCT product_id) AS cnt
-     FROM wc_product_meta_lookup
-     WHERE product_id IN (...)
-     GROUP BY stock_status"
-);
-$counts = array_fill_keys( $statuses, 0 );
-foreach ( $rows as $row ) {
-    if ( isset( $counts[ $row->stock_status ] ) ) {
-        $counts[ $row->stock_status ] = (int) $row->cnt;
-    }
-}
-```
-
-**Canonical example:** `FilterData::get_stock_status_counts` in `src/Internal/ProductFilters/FilterData.php`.
-
----
-
-## Pattern E — OR across heterogeneous indexed columns (flag this)
-
-An `OR` condition that spans two different indexed columns forces an `index_merge sort_union` — the optimizer scans each index separately and merges the result sets. This is often worse than a single index range scan.
-
-```sql
--- index_merge sort_union on billing_email + customer_id_status indexes:
-WHERE status IN ('wc-processing', 'wc-completed')
-  AND ( billing_email IN ('1', 'user@example.com') OR customer_id = 1 )
-```
-
-**Fix — check the selective branch first, avoid the OR in the best case:**
-
-When one branch is strictly more selective (e.g. `customer_id` is a resolved integer vs. `billing_email` fallback), evaluate that branch first at the PHP level and only construct the OR fallback when the best-case branch cannot be used:
-
-```sql
--- Best case: customer_id known → single range on customer_id_status (covering index,
--- no row data fetched, ~6ms)
-WHERE status IN ('wc-processing', 'wc-completed')
-  AND customer_id = 1
-
--- Parity (customer_id unavailable): same index_merge as before, but now the more
--- selective index (customer_id_status) is listed first, which improves merge order
-WHERE status IN ('wc-processing', 'wc-completed')
-  AND ( customer_id = 1 OR billing_email IN ('user@example.com') )
-```
-
-**Why it matters:** A covering index scan (`Using index`) reads no row data and handles 6–12ms queries. An `index_merge sort_union` touches multiple indexes, merges intermediate sets, and materializes a temporary table.
-
-**Canonical example:** `wc_customer_bought_product()` in `includes/wc-user-functions.php`.
-
----
-
-## Pattern F — Cross-product `meta_key IN + meta_value IN` (flag this)
-
-Combining `meta_key IN ('_key1', '_key2') AND meta_value IN ('val1', 'val2')` creates a logical cross-product: it matches any combination of the two keys with any of the two values, including semantically invalid ones (e.g. `_billing_email = '1'`). This forces a `range` scan over the entire `meta_key` index rather than a precise lookup.
-
-```sql
--- Bad: range scan on meta_key, 200k rows examined; also semantically incorrect
--- (matches _billing_email = '1' and _customer_user = 'email')
-WHERE meta_key IN ( '_billing_email', '_customer_user' )
-  AND meta_value IN ( '1', 'user@example.com' )
-```
-
-**Fix — separate conditions per key:**
-
-```sql
--- Good: each branch is a ref/const on meta_key; ~104k rows per branch (49% fewer total)
--- Note: when both branches must be evaluated (parity case), the OR still causes a range
--- scan on meta_key. The gain is realized in the best-case branch (only one key needed).
-WHERE ( meta_key = '_customer_user' AND meta_value = '1' )
-   OR ( meta_key = '_billing_email' AND meta_value = 'user@example.com' )
-```
-
-**Bonus — decouple multi-fan joins via subquery:**
-
-When the postmeta result set drives a join into a second fan-out table (e.g. `order_items → order_itemmeta`), a flat JOIN multiplies the fans: `postmeta_rows × itemmeta_rows`. Restructure the postmeta side as a subquery to force semijoin materialization (`Start/End temporary`) and prevent fan multiplication:
-
-```sql
--- Flat join: postmeta fan × itemmeta fan multiply
-SELECT DISTINCT im.meta_value
-FROM wp_posts AS p
-INNER JOIN wp_postmeta                     AS pm ON p.ID = pm.post_id
-INNER JOIN wp_woocommerce_order_items      AS i  ON p.ID = i.order_id
-INNER JOIN wp_woocommerce_order_itemmeta   AS im ON i.order_item_id = im.order_item_id
-WHERE ...
-
--- Subquery: postmeta side materializes as semijoin; fans are additive, not multiplicative
-SELECT DISTINCT itemmeta.meta_value
-FROM wp_woocommerce_order_items    AS items
-INNER JOIN wp_woocommerce_order_itemmeta AS itemmeta ON items.order_item_id = itemmeta.order_item_id
-WHERE items.order_id IN (
-    SELECT posts.ID FROM wp_posts AS posts
-    INNER JOIN wp_postmeta AS postmeta ON posts.ID = postmeta.post_id
-    WHERE posts.post_type   = 'shop_order'
-      AND posts.post_status IN ('wc-processing', 'wc-completed')
-      AND postmeta.meta_key   = '_customer_user'
-      AND postmeta.meta_value = '1'
-)
-  AND itemmeta.meta_key   IN ('_product_id', '_variation_id')
-  AND itemmeta.meta_value != '0'
-```
-
-**Canonical example:** Legacy path of `wc_customer_bought_product()` in `includes/wc-user-functions.php` (PR #63995).
-
----
-
-## Pattern G — Prefer WooCommerce lookup tables over posts+postmeta join
-
-WooCommerce maintains two dedicated lookup tables with pre-aggregated product data and narrow, indexed rows. When the required data exists there, drop the `wp_posts + wp_postmeta` join entirely.
-
-### `wc_product_meta_lookup` — product scalars
-
-Stores one row per product. Available columns and indexes:
-
-```sql
--- Columns (all indexed unless noted):
-product_id       BIGINT          PK
-sku              VARCHAR(100)    INDEX sku(50)
-global_unique_id VARCHAR(100)    (no index)
-virtual          TINYINT(1)      INDEX virtual
-downloadable     TINYINT(1)      INDEX downloadable
-min_price        DECIMAL(19,4)   INDEX min_max_price(min_price, max_price)
-max_price        DECIMAL(19,4)   (part of min_max_price)
-onsale           TINYINT(1)      INDEX onsale
-stock_quantity   DOUBLE          INDEX stock_quantity
-stock_status     VARCHAR(100)    INDEX stock_status
-rating_count     BIGINT          (no index)
-average_rating   DECIMAL(3,2)    (no index)
-total_sales      BIGINT          (no index)
-tax_status       VARCHAR(100)    (no index)
-tax_class        VARCHAR(100)    (no index)
-```
-
-**Example — 2-table join replaced by single-table lookup (82% faster):**
-
-```sql
--- Before: posts + postmeta join, ~55ms avg (1,002 rows scanned, rowid filter)
-SELECT wp_posts.ID
-FROM wp_posts
-INNER JOIN wp_postmeta ON wp_posts.ID = wp_postmeta.post_id
-WHERE wp_posts.post_type   = 'product'
-  AND wp_posts.post_status = 'publish'
-  AND wp_postmeta.meta_key   = '_downloadable'
-  AND wp_postmeta.meta_value = 'yes'
-LIMIT 1
-
--- After: single index seek on lookup table, ~10ms avg
-SELECT product_id FROM wp_wc_product_meta_lookup WHERE downloadable = 1 LIMIT 1
-```
-
-**Canonical example:** `DownloadsWrapper` in `src/Blocks/BlockTypes/OrderConfirmation/DownloadsWrapper.php`; `FilterData::get_stock_status_counts` in `src/Internal/ProductFilters/FilterData.php`.
-
-### `wc_product_attributes_lookup` — product-term relationships
-
-Stores one row per `(product, term)` pair with `in_stock` and variation flags. Use for attribute-based filtering and counting instead of joining `wp_term_relationships`.
-
-**Canonical example:** `Filterer` in `src/Internal/ProductAttributesLookup/Filterer.php`.
-
-### Regeneration guards
-
-The two tables use different options with opposite semantics — gate each one separately:
-
-```php
-// wc_product_meta_lookup: option is truthy while the table is being regenerated.
-if ( get_option( 'woocommerce_product_lookup_table_is_generating' ) ) {
-    // fall back to wp_postmeta
-} else {
-    // use wc_product_meta_lookup
-}
-
-// wc_product_attributes_lookup: must be explicitly enabled by the merchant.
-if ( 'yes' === get_option( 'woocommerce_attribute_lookup_enabled' ) ) {
-    // use wc_product_attributes_lookup
-} else {
-    // fall back to wp_term_relationships
-}
-```
-
-**Exception:** Code that builds or regenerates the lookup tables themselves (`LookupDataStore`, regeneration scripts) must read from the source tables (`wp_postmeta`, `wp_term_relationships`). This is not a Pattern G violation.
-
----
-
-## Pattern H — `MIN/MAX` full scan → `UNION ALL + LIMIT 1`
-
-`SELECT MIN(col), MAX(col) FROM table WHERE ...` requires a full index scan of all matching rows. When the column is covered by a sorted composite index, the min and max can each be found in a single seek by reading one row from each end.
-
-**When it applies:** All three conditions must hold:
-
-1. The WHERE predicates on the leading index columns are equality constraints (`col = const`) or bounded ranges that the optimizer can resolve as a contiguous index segment.
-2. The ORDER BY column is the trailing key of that same index.
-3. `LIMIT 1` stops the scan after the first qualifying row.
-
-The `type_status_date(type, status, date_created_gmt)` index satisfies all three conditions: `type = 'shop_order'` is an equality (const), `status != 'trash'` is a bounded range the optimizer walks within the index, and `date_created_gmt` is the trailing key read directionally. `LIMIT 1` stops after the first row in each direction.
-
-```sql
--- Full scan: 51,831 rows examined, ~66ms avg
-SELECT MIN(date_created_gmt), MAX(date_created_gmt)
-FROM wp_wc_orders
-WHERE type = 'shop_order' AND status != 'trash'
-
--- Two seeks via UNION ALL: 2 rows total, ~12ms avg (82% faster)
 SELECT MIN(date_created_gmt), MAX(date_created_gmt)
 FROM (
-    ( SELECT date_created_gmt FROM wp_wc_orders
-      WHERE type = 'shop_order' AND status != 'trash'
-      ORDER BY date_created_gmt DESC LIMIT 1 )
+    (SELECT date_created_gmt FROM wp_wc_orders
+     WHERE type = 'shop_order' AND status != 'trash'
+       AND date_created_gmt IS NOT NULL
+     ORDER BY date_created_gmt ASC LIMIT 1)
     UNION ALL
-    ( SELECT date_created_gmt FROM wp_wc_orders
-      WHERE type = 'shop_order' AND status != 'trash'
-      ORDER BY date_created_gmt ASC LIMIT 1 )
-) d
+    (SELECT date_created_gmt FROM wp_wc_orders
+     WHERE type = 'shop_order' AND status != 'trash'
+       AND date_created_gmt IS NOT NULL
+     ORDER BY date_created_gmt DESC LIMIT 1)
+) AS bounds;
 ```
 
-**NULL handling:** `MIN()` / `MAX()` ignore NULLs; `ORDER BY col ASC LIMIT 1` returns NULL first (MySQL sorts NULLs before values in ASC). On a nullable column the two approaches produce different results. Pattern H is only safe when the column is `NOT NULL`, or when both UNION branches add `AND col IS NOT NULL`.
+Table names here are illustrative; use the runtime table name. NULL guards preserve MIN/MAX's non-NULL semantics; the outer aggregate preserves one NULL-valued result row on empty/all-NULL input. Backdated orders mean ID order cannot substitute for date order.
 
-**If the required index does not exist:** Adding it is a prerequisite, not a reason to skip the pattern. Evaluate whether the index maintenance cost is justified (it usually is for high-read, low-write tables like `wp_wc_orders`). For example, `SELECT MAX(post_modified_gmt) FROM wp_posts WHERE post_type IN ('product', 'product_variation')` is a Pattern H candidate, but `post_modified_gmt` has no standard WordPress index — the optimization requires first adding `(post_type, post_modified_gmt)`.
+A composite `(type,status,date)` index is not globally date-ordered when status varies. In [#63039](https://github.com/woocommerce/woocommerce/pull/63039), the probes selected the separate `date_created` index and applied residual filters. Two returned dates do not mean two examined rows: a long run of ineligible records can make a probe expensive. Do not add an index automatically to enable this rewrite; evaluate its operational cost separately. [MySQL ORDER BY optimization](https://dev.mysql.com/doc/refman/8.4/en/order-by-optimization.html).
 
-**Table scope:** The pattern applies to any table with a suitable composite index — not only `wp_wc_orders`. When HPOS is disabled, orders reside in `wp_posts` with index `type_status_date(post_type, post_status, post_date)` — a different trailing key than `wp_wc_orders`. Always verify the target table's actual index covers the WHERE + ORDER BY columns before applying the rewrite.
+## Construct new fragments safely without re-preparing existing SQL
 
-**Canonical example:** `ListTable` in `src/Internal/Admin/Orders/ListTable.php`.
+Guard empty dynamic lists using the caller's established empty-result semantics. Normalize integer IDs and use `$wpdb->prepare()` placeholders for values; escaping alone is not a substitute for value placeholders. Prepare only newly introduced fragments when incorporating SQL that has already been prepared: preparing the whole statement again can reinterpret literal percent syntax. The [#69320 preparation discussion](https://github.com/woocommerce/woocommerce/pull/69320#discussion_r4316217493) includes a literal `50%s` search regression case.
 
----
-
-## Summary checklist
-
-When writing or reviewing a SQL query:
-
-- [ ] Does the join on `wp_posts` use any column besides `ID`? If not and IDs are pre-filtered, drop the join. (Pattern A)
-- [ ] Is `wp_term_relationships` joined without constraining `term_taxonomy_id`? Fan-out risk. (Pattern C)
-- [ ] Are there N queries in a loop with a different parameter each time? Collapse with `GROUP BY`. (Pattern D)
-- [ ] Is the narrowest table driving the query? Prefer `wp_term_taxonomy` / `wp_terms` (small) over `wp_posts` / `wp_term_relationships` (large). (Pattern A)
-- [ ] Does a `WHERE` clause use `OR` across two different indexed columns? Check the more selective branch first at the PHP level. (Pattern E)
-- [ ] Does a `WHERE` clause combine `meta_key IN (...) AND meta_value IN (...)`? Split into per-key conditions. (Pattern F)
-- [ ] Are two fan-out tables joined flat (multiplying rows)? Decouple one side as a subquery. (Pattern F)
-- [ ] Does a `wp_posts + wp_postmeta` join fetch data available in `wc_product_meta_lookup`? Use the lookup table if the regeneration guard passes. (Pattern G)
-- [ ] Does any dynamic `IN (...)` list guard against empty input and sanitize values? (Cross-cutting)
-- [ ] Does the query compute `MIN(col)` or `MAX(col)` over a large indexed table? Use `UNION ALL + LIMIT 1` if WHERE + ORDER BY share a composite index and the column is `NOT NULL` (or both branches add `AND col IS NOT NULL`). (Pattern H)
-- [ ] After applying any optimization, verify the execution plan changed as expected with `EXPLAIN` — check `type`, `key`, `rows`, and `Extra` columns before and after.
+Preserve supported hooks, data-store overrides, and filterable query paths. A fast path that stops calling an override changes behavior even if signatures remain intact. When skipping the old path cannot preserve those contracts, retain a compatible fallback or design the change as an explicit compatibility migration.

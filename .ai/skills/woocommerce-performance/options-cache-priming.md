@@ -1,129 +1,28 @@
-# Options Cache Priming
+# Options cache priming
 
-Covers correct usage of `wp_prime_option_caches()` to reduce SQL query counts when reading multiple options in a method or loop.
+Use when a consumer reads several option keys or transients. Distinguish existing autoloaded options, missing options, non-autoloaded options and the active transient backend before adding work.
 
-## Patterns
+## Batch the keys the consumer will actually read
 
-### 1. Missing options priming before reading a known set of keys
-
-**Apply when:** A method reads multiple known `get_option()` keys in sequence.
-
-**Correct pattern:**
+`wp_prime_option_caches()` can batch cold reads of known option names, including missing names. Existing autoloaded options normally need no explicit prime. Cached and negatively cached keys may also need no SQL; many get_option calls alone do not establish an N+1 problem.
 
 ```php
-// Prime caches to reduce future queries.
-wp_prime_option_caches(
-    array(
-        'woocommerce_enable_checkout_login_reminder',
-        'woocommerce_tax_display_cart',
-        // ...
-    )
+$keys = array_map(
+    static fn( $id ) => "woocommerce_{$id}_settings",
+    $setting_ids
 );
-$login_reminder = get_option( 'woocommerce_enable_checkout_login_reminder' );
-$tax_display    = get_option( 'woocommerce_tax_display_cart' );
-```
-
-No `! empty()` guard is needed for statically declared, always-non-empty arrays. Place the comment directly above the call.
-
-**Common locations to check:**
-
-- `register_routes()` methods that read options immediately after registration
-- Block type `render()` or `get_data()` methods that read several settings
-- Any method that reads more than one non-autoloaded option in sequence
-
----
-
-### 2. Missing options priming before a loop with a derivable key pattern
-
-**Apply when:** A loop iterates a collection and each iteration calls `get_option()` using a key derived from the item — for example `woocommerce_{class}_settings`.
-
-**Correct pattern:**
-
-```php
-// Prime caches to reduce future queries.
-wp_prime_option_caches(
-    array_map( fn( string $class ) => sprintf( 'woocommerce_%s_settings', $class ), $classes )
-);
-foreach ( $classes as $class ) {
-    $settings = get_option( sprintf( 'woocommerce_%s_settings', $class ) );
+if ( ! empty( $keys ) ) {
+    wp_prime_option_caches( $keys );
 }
 ```
 
-**Common locations to check:**
+Place the prime before the first consumer, including constructors that read their settings. Derive keys from the final registry/settings structure; normalize nested or bracketed settings references to actual option names. Prime a bounded relevant group rather than every option a request might conceivably use. [#62853](https://github.com/woocommerce/woocommerce/pull/62853) batches email/settings reads; [#65883](https://github.com/woocommerce/woocommerce/pull/65883) covers registry-derived feature/gateway keys.
 
-- Email class initialization: key pattern `woocommerce_{email_class_suffix}_settings`
-- Shipping method loops: key pattern `woocommerce_{method}_settings`
+WooCommerce settings APIs commonly save options as autoloaded, but explicit overrides and historic state exist. Before first save an option may be absent even if its definition defaults to autoload. WordPress's priming helper checks autoload/cache state itself; avoid treating a definition or a large call count as proof of live SQL work.
 
----
+## Use the correct transient storage
 
-### 3. Missing options priming when keys are extracted from a settings structure
-
-**Apply when:** A settings array carries an `option_key` field; the array is iterated and each item's option is read via `get_option()`.
-
-**Correct pattern:**
-
-```php
-$prefetch = array_column( $settings, 'option_key' ); // or equivalent extraction
-if ( ! empty( $prefetch ) ) {
-    // Prime caches to reduce future queries.
-    wp_prime_option_caches( $prefetch );
-}
-foreach ( $settings as $setting ) {
-    $value = get_option( $setting['option_key'] );
-}
-```
-
-Guard with `! empty()` when the list is dynamically built and may be empty. When guarded, the comment sits inside the `if` block directly above the call — consistent with `_prime_post_caches` placement rules.
-
----
-
-### 4. Registry / definition-array based priming at init time
-
-**Apply when:** A class maintains a registry (array) of entities whose option key is derivable from the entry — either stored as an explicit `option_key` field or computable from the entry's ID using a known naming convention.
-
-**Correct pattern:**
-
-```php
-// Prime options caches to reduce future queries (for non-existing yet or non-autoloaded options).
-wp_prime_option_caches(
-    array_map(
-        static fn( $id, $def ) => $def['option_key'] ?? "woocommerce_feature_{$id}_enabled",
-        array_keys( $this->registry ),
-        $this->registry
-    )
-);
-```
-
-Place the call at the end of the method that populates the registry, before any code that reads from it. This ensures a single batch query covers all entries regardless of which specific entry triggers the first read.
-
-`wp_prime_option_caches()` skips entries already in `alloptions` (autoloaded options loaded at WordPress boot) — the resulting SQL `WHERE option_name IN (...)` contains only the non-autoloaded or not-yet-existing subset. This is expected and correct: the SQL appearing in query monitors will show a subset of the full registry, not all entries.
-
-**Real-world example:** `FeaturesController::init_feature_definitions()` — after registering all feature definitions, primes all `woocommerce_feature_{id}_enabled` keys (and any custom `option_key` overrides) in one call. Without this, each `feature_is_enabled()` call throughout the request issues its own individual `SELECT`.
-
----
-
-### 5. Transient names passed to `wp_prime_option_caches()` — unsafe under persistent object cache
-
-**Anti-pattern:** Passing `_transient_*`, `_transient_timeout_*`, `_site_transient_*`, or `_site_transient_timeout_*` option names to `wp_prime_option_caches()`.
-
-**Why it is wrong:** When a persistent object cache is active, WordPress stores transients in the object cache under the `transient` group — not as rows in `wp_options`. `wp_prime_option_caches()` reads from the options table. On a persistent-cache site the named rows never exist, so each prime call records every transient name as a `notoptions` entry. Those entries persist indefinitely: the corresponding `wp_options` rows are never created for transients stored exclusively in the object cache, so the normal invalidation path (`add_option` / `update_option`) never fires. The `notoptions` cache grows by two entries per transient name per call (`_transient_<name>` + `_transient_timeout_<name>`). On backends where `notoptions` resolves to a single cache key read on every request (observed with sharded Redis), this growth increases per-request retrieval cost over time.
-
-**Correct pattern:**
-
-```php
-// Transients are stored in the options table only when no persistent object cache is active.
-// Passing transient names to wp_prime_option_caches() under a persistent object cache
-// records them in the notoptions negative-cache indefinitely, since those rows are never
-// created in wp_options. Sites with a persistent cache already retrieve transients from the
-// object cache in O(1) — no priming is needed or beneficial.
-if ( ! wp_using_ext_object_cache() ) {
-    wp_prime_option_caches( $transient_option_names );
-}
-```
-
-`wp_using_ext_object_cache()` is the same guard WordPress itself uses inside `get_transient()` and `set_transient()` to switch between the options table and the object cache. Sites without a persistent cache keep the existing batching behaviour. Sites with one already retrieve transients from the object cache directly — skipping the prime loses nothing.
-
-**Mixed key list:** If the array passed to `wp_prime_option_caches()` mixes regular option names with transient names, split the call: prime the regular option names unconditionally; prime the transient names only under `! wp_using_ext_object_cache()`. Wrapping the entire call in the guard would silently drop the regular option priming on persistent-cache sites.
+With an external object cache, transients use their cache group rather than the options table. Do not prime `_transient_*`/timeout option names on that path:
 
 ```php
 wp_prime_option_caches( $regular_option_names );
@@ -132,62 +31,14 @@ if ( ! wp_using_ext_object_cache() ) {
 }
 ```
 
-**Audit rule:** Any call to `wp_prime_option_caches()` whose key list contains names beginning with `_transient_`, `_transient_timeout_`, `_site_transient_`, or `_site_transient_timeout_` must be guarded with `! wp_using_ext_object_cache()`.
+Priming nonexistent transient option names can grow the `notoptions` negative cache as **new unique names** accumulate. Repeating the same names does not add entries each time; eviction and legacy database transient rows also affect the behavior. The useful guard comes from [#65440](https://github.com/woocommerce/woocommerce/pull/65440) and its [skill correction #65441](https://github.com/woocommerce/woocommerce/pull/65441). It does not imply all external-cache access is free or that no backend-specific batching can help.
 
----
+Keep ordinary option priming outside that guard when the key list is mixed. Site transients have a separate storage path: on multisite their database fallback is network options, not the current site's options table. Use the appropriate network-option cache API and network ID, checking availability in supported WordPress versions. Match the API and cache namespace to the consumer rather than merely matching a key prefix.
 
-## Notes
+## Keep autoload changes consistent across time
 
-`wp_prime_option_caches()` is a stable public WordPress function (no underscore prefix), available since WP 6.4. WooCommerce's minimum supported WordPress version guarantees its presence — no `is_callable()` guard is needed.
+Autoload moves cost into bootstrap payload; use it for suitably bounded, frequently read values with evidence. Check installation defaults, existing stored values, migration, and every later writer. In [#69693](https://github.com/woocommerce/woocommerce/pull/69693), settings saves undid an earlier migration because definitions still disabled autoload. Prefer WordPress option APIs for cache coherence and target the options that still exist.
 
-Always use the comment `// Prime caches to reduce future queries.` directly above the call. When the call is guarded by `! empty()`, the comment sits inside the `if` block — not before it.
+Do not materialize a missing option just to avoid a read until its absence semantics are understood. Absence can select a dynamic default, unlike a stored false/zero. The [#70409 review](https://github.com/woocommerce/woocommerce/pull/70409#discussion_r4423848691) identified that distinction for HPOS background synchronization; check absence behavior before adopting the proposed stored default.
 
-The benefit of `wp_prime_option_caches` operates along two complementary dimensions — not binary logic:
-
-- **Existence**: options not yet written to the database are absent from `wp_load_alloptions()` even when flagged autoloaded. Each `get_option()` call for a missing key issues an individual SQL query. Priming batches those misses into one query upfront.
-- **Autoload state**: non-autoloaded options are never loaded at bootstrap regardless of whether they exist. Priming is the primary mechanism to avoid per-request queries for them.
-
-An autoloaded option that has already been saved gains nothing from priming (already in cache). The same option before it is first saved benefits from the existence check. Both dimensions apply independently — consider both when deciding whether to prime.
-
-For multisite contexts, use `wp_prime_network_option_caches( $network_id, $keys )` (available since WP 6.4) for network-scoped options.
-
----
-
-## Autoload Architecture (WooCommerce-specific)
-
-**WooCommerce settings API autoloads by default.** Any option registered and saved through `WC_Admin_Settings::save_fields()` is stored with `autoload = 'yes'` unless the field definition explicitly sets `'autoload' => false`. The relevant code is in `includes/admin/class-wc-admin-settings.php`:
-
-```php
-// Line ~1035
-$autoload_options[ $option_name ] = isset( $option['autoload'] ) ? (bool) $option['autoload'] : true;
-// Line ~1047
-update_option( $name, $value, $autoload_options[ $name ] ? 'yes' : 'no' );
-```
-
-WordPress loads all autoloaded options into the object cache at bootstrap via `wp_load_alloptions()`. This means that **any `get_option()` call reading a WooCommerce settings-API-registered option is already served from cache** — adding `wp_prime_option_caches` there is a no-op.
-
-### False-positive patterns — do NOT add priming
-
-High `get_option()` concentration alone is **not** a signal. These are common false positives:
-
-- **Endpoint options** — `woocommerce_checkout_pay_endpoint`, `woocommerce_myaccount_*_endpoint`, etc. All autoloaded via settings API.
-- **Feature flags and toggles** — `woocommerce_enable_ajax_add_to_cart`, `woocommerce_enable_checkout_login_reminder`, `woocommerce_tax_display_cart`, etc. All autoloaded.
-- **General store settings** — currency, weight unit, address fields, etc. All autoloaded.
-
-### The `*_settings` per-entity pattern
-
-All three entity types extend `WC_Settings_API`, which saves settings with `autoload='yes'`. Once saved, these options are already in cache. However, on a fresh install or before settings are first saved, they are absent from `wp_load_alloptions()` — each `get_option()` issues an individual query. Priming is justified here specifically for the existence dimension (batching those misses), particularly when looping over a large number of entities such as email classes.
-
-| Location | Pattern | Status |
-| --- | --- | --- |
-| `includes/class-wc-emails.php` — `init()` | array_map over email class list | ✅ covered — batches miss queries on fresh/unconfigured installs |
-| `includes/class-wc-shipping.php` — `get_shipping_method_class_names()` | array_map over method ID list | ✅ covered — same rationale |
-| `includes/class-wc-payment-gateways.php` — `init()` | 5 known option keys for 4 built-in gateways | ✅ covered — same rationale |
-
-### Workflow for gap analysis
-
-When asked to find missing `wp_prime_option_caches` opportunities:
-
-1. Search for multi-`get_option()` methods.
-2. Consider both dimensions: autoload state (non-autoloaded options benefit on every request) and existence (options not yet saved benefit on first use regardless of autoload flag).
-3. Flag loops or sequences reading multiple options where either dimension applies and no priming is present.
+Validate query-count changes and end-to-end cost separately, with fresh/unconfigured and previously saved settings, external cache on/off, and relevant multisite scope. For invalidation, background warming and persistent counters, also read [database operations](database-operations.md#make-caching-and-scheduling-correct-across-their-lifecycle).

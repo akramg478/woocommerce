@@ -1,18 +1,21 @@
 ---
 name: woocommerce-performance
-description: Identify performance issues in WooCommerce PHP code. Use when writing or reviewing code that loads collections of post-based objects (products, orders), renders product lists with images, reads multiple options in a loop or method, or writes SQL queries involving joins, aggregates, meta lookups, or range queries.
+description: Use when writing or reviewing WooCommerce performance changes involving SQL, indexes, bulk data loading, cache priming or invalidation, maintenance jobs, repeated computation, or deferred initialization.
 ---
 
 # WooCommerce Performance
 
-## Post Cache Priming — [cache-priming.md](cache-priming.md)
+Optimize the work required by the caller while preserving its data and extension contracts. A smaller query count, a familiar SQL shape, or a merged precedent is not proof of an improvement on another store.
 
-Use when writing or reviewing code that loads collections of post-based objects (products, orders) or renders product lists with images. Covers `_prime_post_caches()` usage patterns — both as a generation guide (apply these patterns when writing new code) and a review guide (flag missing priming in existing code).
+Read only the references relevant to the change:
 
-## Options Cache Priming — [options-cache-priming.md](options-cache-priming.md)
+| Work | Reference |
+| --- | --- |
+| SQL predicates, joins, aggregates, lookup tables, query plans | [SQL query patterns](sql-query-patterns.md) |
+| Indexes, large writes, cleanup, concurrency, profiling or deferred work | [Database operations and measurement](database-operations.md) |
+| Product/order collections, images, N+1 hydration | [Cache priming](cache-priming.md) |
+| Options, transients, autoload state | [Options cache priming](options-cache-priming.md) |
 
-Use when writing or reviewing code that reads multiple non-autoloaded options in a loop or method. Covers `wp_prime_option_caches()` usage patterns for static key lists, derivable key patterns, and dynamically extracted key sets (excluding autoloaded options, which are already in cache).
+For SQL changes, establish the result contract before the plan: eligible entities, duplicates, ordering, NULLs, result types, storage authority, and extension filters. For cache changes, also establish the key, lifetime, mutation paths, and acceptable staleness. Check the current implementation and schema rather than copying a historical PR verbatim.
 
-## SQL Query Patterns — [sql-query-patterns.md](sql-query-patterns.md)
-
-Use when writing or reviewing any SQL query in WooCommerce PHP code. Covers: redundant posts joins, fan-out JOIN on `wp_term_relationships`, N-query loops, OR index-merge, cross-product meta conditions, multi-fan join decoupling, WooCommerce lookup table preference (`wc_product_meta_lookup`, `wc_product_attributes_lookup`), and MIN/MAX full-scan elimination.
+In the change description, identify the workload improved, evidence supporting that conclusion, compatibility preserved, and untested conditions. Use the project's testing and verification workflows; these references add performance-specific checks, not a separate approval process.
