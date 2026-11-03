@@ -65,7 +65,7 @@ class StoreConditions {
 			'label'   => $label,
 			'why'     => $why,
 			'fix'     => __( 'Choose a published page under WooCommerce > Settings > AI tools > AI shopping.', 'woocommerce' ),
-			'fix_url' => $settings_url( AgenticCommerceSettings::TAB . '&section=' . AgenticCommerceSettings::SHOPPING_SECTION ) . '#' . $option,
+			'fix_url' => $settings_url( AgenticCommerceSettings::TAB ) . '#' . $option,
 		);
 
 		return array(
@@ -100,7 +100,7 @@ class StoreConditions {
 				'label'   => __( 'Universal Commerce Protocol (UCP) is off', 'woocommerce' ),
 				'why'     => __( 'Shopping agents that use UCP cannot read your catalog.', 'woocommerce' ),
 				'fix'     => __( 'Turn on "Allow AI assistants to shop your store" under WooCommerce > Settings > AI tools > AI shopping.', 'woocommerce' ),
-				'fix_url' => $settings_url( AgenticCommerceSettings::TAB . '&section=' . AgenticCommerceSettings::SHOPPING_SECTION ),
+				'fix_url' => $settings_url( AgenticCommerceSettings::TAB ),
 			),
 			array(
 				'id'      => 'https',

@@ -29,7 +29,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	/**
 	 * AI shopping section: the switch, Status and the settings agents read.
 	 */
-	public const SECTION_SHOPPING = AgenticCommerceSettings::SHOPPING_SECTION;
+	public const SECTION_SHOPPING = '';
 
 	/**
 	 * Product checks that Readiness check leaves out: product image alt text repeats the images_have_alt store check.
@@ -98,7 +98,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	 *
 	 * @return array<int, array<string, mixed>>
 	 */
-	protected function get_settings_for_shopping_section() {
+	protected function get_settings_for_default_section() {
 		$store_pages = self::store_page_ids();
 		$pages       = array( '' => __( 'Select a page…', 'woocommerce' ) );
 		$published   = get_pages(
@@ -152,30 +152,20 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	}
 
 	/**
-	 * The landing page has no settings of its own.
-	 *
-	 * @return array<int, array<string, mixed>>
-	 */
-	protected function get_settings_for_default_section() {
-		return array();
-	}
-
-	/**
-	 * The landing page, AI shopping with the settings, and Readiness check with the last scan.
-	 * Each names itself in the page's breadcrumb.
+	 * AI shopping, the settings and the tab's default section, and Readiness check with the last
+	 * scan. A landing page with one card per AI feature waits until there is more than AI shopping.
 	 *
 	 * @return array<string, string>
 	 */
 	protected function get_own_sections() {
 		return array(
-			''                      => __( 'AI tools', 'woocommerce' ),
 			self::SECTION_SHOPPING  => __( 'AI shopping', 'woocommerce' ),
 			self::SECTION_READINESS => __( 'Readiness check', 'woocommerce' ),
 		);
 	}
 
 	/**
-	 * No section links: each section has a breadcrumb back to the one above it instead.
+	 * No section links: AI shopping's Settings and Readiness check tabs replace them.
 	 *
 	 * @return void
 	 */
@@ -185,14 +175,14 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	/**
 	 * Link to a section of this tab.
 	 *
-	 * @param string $section Section id, or '' for the landing page.
+	 * @param string $section Section id, or '' for AI shopping's settings.
 	 */
 	public static function section_url( string $section ): string {
 		return admin_url( 'admin.php?page=wc-settings&tab=' . AgenticCommerceSettings::TAB . ( '' === $section ? '' : '&section=' . $section ) );
 	}
 
 	/**
-	 * Render the current section. The landing page links to AI shopping; AI shopping has the
+	 * Render the current section. AI shopping's Settings has the
 	 * design's cards: the switch, what AI assistants can see, Status, the store policy fields,
 	 * the store address and Security.
 	 */
@@ -218,13 +208,6 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 			echo '</div>';
 			return;
 		}
-		if ( self::SECTION_SHOPPING !== $section ) {
-			$GLOBALS['hide_save_button'] = true;
-			$this->render_landing( $checks );
-			echo '</div>';
-			return;
-		}
-
 		$this->render_header( self::SECTION_SHOPPING );
 		$this->render_switch( $checks );
 		$this->render_visibility( $report );
@@ -252,7 +235,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 			self::SECTION_READINESS => $names[ self::SECTION_READINESS ],
 		);
 		echo '<div class="wc-agentic-commerce-header"><div class="wc-agentic-commerce-breadcrumb" role="navigation" aria-label="' . esc_attr__( 'Breadcrumb', 'woocommerce' ) . '">';
-		echo '<a href="' . esc_url( self::section_url( '' ) ) . '">' . esc_html( $names[''] ) . '</a> <span aria-hidden="true">/</span> ';
+		echo '<span>' . esc_html( $this->label ) . '</span> <span aria-hidden="true">/</span> ';
 		echo '<span>' . esc_html( $names[ self::SECTION_SHOPPING ] ) . '</span></div>';
 		echo '<p>' . esc_html__( 'Make your products available to AI shopping assistants.', 'woocommerce' ) . '</p>';
 		echo '<div class="wc-agentic-commerce-tabs" role="navigation" aria-label="' . esc_attr( $names[ self::SECTION_SHOPPING ] ) . '">';
@@ -278,37 +261,6 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 		}
 		/* translators: %s: date and time, such as November 3, 2026 10:42. */
 		return sprintf( __( 'Last checked %s', 'woocommerce' ), wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $time ) );
-	}
-
-	/**
-	 * The landing page of the tab: one card per AI feature. AI shopping is the one here. Once
-	 * UCP is on, the card is marked Active and says how many setup steps are left.
-	 *
-	 * @param array<int, array{id:string,ok:bool,blocks:string,level:string,name:string,label:string,why:string,fix:string,fix_url:string}> $checks Store conditions.
-	 */
-	private function render_landing( array $checks ): void {
-		$enabled = UcpUtils::is_enabled();
-		$left    = count( self::setup_steps( $checks )[1] );
-		if ( ! $enabled ) {
-			$text = __( 'Make your products available to AI shopping assistants.', 'woocommerce' );
-		} elseif ( $left > 0 ) {
-			/* translators: %d: number of open setup steps. */
-			$text = sprintf( _n( 'AI assistants can shop your store. %d step left.', 'AI assistants can shop your store. %d steps left.', $left, 'woocommerce' ), $left );
-		} else {
-			$text = __( 'AI assistants can shop your store.', 'woocommerce' );
-		}
-		?>
-		<div class="wc-agentic-commerce-card">
-			<div class="wc-agentic-commerce-card__header wc-agentic-commerce-card__header--split">
-				<h2><?php esc_html_e( 'AI shopping', 'woocommerce' ); ?></h2>
-				<?php if ( $enabled ) : ?>
-					<mark class="wc-agentic-commerce-badge wc-agentic-commerce-badge--pass"><?php esc_html_e( 'Active', 'woocommerce' ); ?></mark>
-				<?php endif; ?>
-			</div>
-			<p class="wc-agentic-commerce-card__body"><?php echo esc_html( $text ); ?></p>
-			<p class="wc-agentic-commerce-card__body"><a class="button" href="<?php echo esc_url( self::section_url( self::SECTION_SHOPPING ) ); ?>"><?php echo $enabled ? esc_html__( 'Manage', 'woocommerce' ) : esc_html__( 'Set up AI shopping', 'woocommerce' ); ?></a></p>
-		</div>
-		<?php
 	}
 
 	/**
@@ -634,22 +586,6 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	}
 
 	/**
-	 * The setup steps, done and open. UCP itself is the switch, so it is not a step.
-	 *
-	 * @param array<int, array{id:string,ok:bool,blocks:string,level:string,name:string,label:string,why:string,fix:string,fix_url:string}> $checks Store conditions.
-	 * @return array{0:array<int, array{id:string,ok:bool,blocks:string,level:string,name:string,label:string,why:string,fix:string,fix_url:string}>, 1:array<int, array{id:string,ok:bool,blocks:string,level:string,name:string,label:string,why:string,fix:string,fix_url:string}>}
-	 */
-	private static function setup_steps( array $checks ): array {
-		$steps = array( array(), array() );
-		foreach ( $checks as $check ) {
-			if ( 'ucp_on' !== $check['id'] ) {
-				$steps[ $check['ok'] ? 0 : 1 ][] = $check;
-			}
-		}
-		return $steps;
-	}
-
-	/**
 	 * The Status card: a badge, then the open setup checks in one list, required ones first and
 	 * marked Required. Each says why it matters and links to where to fix it. Completed checks fold
 	 * behind "Show N completed steps". UCP itself is the switch, so it is not listed.
@@ -658,7 +594,9 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	 * @param array<string, mixed>|null                                                                                                     $report           Stored report, or null before the first scan.
 	 */
 	private function render_status( array $checks, ?array $report ): void {
-		list( $done, $open ) = self::setup_steps( $checks );
+		$steps = array_values( array_filter( $checks, static fn( array $check ): bool => 'ucp_on' !== $check['id'] ) );
+		$done  = array_filter( $steps, static fn( array $check ): bool => $check['ok'] );
+		$open  = array_diff_key( $steps, $done );
 		// Required first; usort keeps the order within each level.
 		usort( $open, static fn( array $a, array $b ): int => ( StoreConditions::LEVEL_REQUIRED === $b['level'] ) <=> ( StoreConditions::LEVEL_REQUIRED === $a['level'] ) );
 		$required = count( array_filter( $open, static fn( array $check ): bool => StoreConditions::LEVEL_REQUIRED === $check['level'] ) );

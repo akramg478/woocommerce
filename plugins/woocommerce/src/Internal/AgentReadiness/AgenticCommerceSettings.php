@@ -20,12 +20,6 @@ class AgenticCommerceSettings implements RegisterHooksInterface {
 
 	public const TAB = 'agentic-commerce';
 
-	/**
-	 * Section with the AI shopping settings. Here, not on the page class, so code that runs
-	 * outside the settings screen (the scan) can link to it without loading WC_Settings_Page.
-	 */
-	public const SHOPPING_SECTION = 'shopping';
-
 	public const PRIVACY_PAGE_OPTION = 'wp_page_for_privacy_policy';
 
 	public const TERMS_PAGE_OPTION = 'woocommerce_terms_page_id';

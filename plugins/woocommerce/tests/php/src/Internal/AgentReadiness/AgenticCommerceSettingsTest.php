@@ -119,7 +119,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$this->assertLessThan( strpos( $html, 'wc-agentic-commerce-item--open' ), strrpos( $html, 'wc-agentic-commerce-item--required' ), 'Required steps come first' );
 		$this->assertMatchesRegularExpression( '/(Choose a|Publish your) privacy policy page/', $html, 'An open check says what to do' );
 		$this->assertStringContainsString( 'Store address for AI assistants', $html );
-		$this->assertMatchesRegularExpression( '#<span>AI shopping</span></div>.*section=shopping" aria-current="page">Settings</a>#s', $html, 'AI shopping opens on its Settings tab' );
+		$this->assertMatchesRegularExpression( '#<span>AI tools</span> <span aria-hidden="true">/</span> <span>AI shopping</span></div>.*tab=agentic-commerce" aria-current="page">Settings</a>#s', $html, 'The tab opens on AI shopping\'s Settings tab' );
 		$this->assertStringContainsString( '<h2>Security</h2>', $html, 'Placeholder until WOOAI-1620' );
 		$this->assertStringNotContainsString( 'Universal Commerce Protocol (UCP) is off', $html, 'UCP is the switch, not a listed check' );
 	}
@@ -252,11 +252,6 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$page->output();
 		$html            = (string) ob_get_clean();
 		$current_section = '';
-		ob_start();
-		$page->output();
-		$landing = (string) ob_get_clean();
-
-		$this->assertMatchesRegularExpression( '#>Active</mark>.*AI assistants can shop your store\. \d+ steps? left\..*section=shopping">Manage</a>#s', $landing, 'The landing card says AI shopping is on and how many steps are left' );
 		$this->assertStringContainsString( 'aria-checked="true"', $html );
 		$this->assertStringContainsString( '<p class="wc-agentic-commerce-ucp-message" role="status"></p>', $html, 'Status lists the required steps, so the switch adds no message' );
 	}
@@ -452,10 +447,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 			false
 		);
 
-		$this->assertSame( array( '', 'shopping', 'readiness' ), array_keys( $this->page()->get_sections() ) );
-		$landing = $this->render_page( '' );
-		$this->assertStringContainsString( 'section=shopping">Set up AI shopping</a>', $landing, 'The landing page links to AI shopping' );
-		$this->assertTrue( $this->save_hidden, 'The landing page has nothing to save' );
+		$this->assertSame( array( '', 'readiness' ), array_keys( $this->page()->get_sections() ) );
 
 		$html = $this->render_page();
 		$this->assertMatchesRegularExpression( '#section=readiness">Readiness check</a> <mark[^>]*>2 issues</mark>#', $html, 'One store and one product issue; the alt text check is not counted' );
