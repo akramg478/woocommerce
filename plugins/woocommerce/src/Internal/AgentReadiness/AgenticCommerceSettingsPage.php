@@ -27,10 +27,8 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 
 	public const SECTION_READINESS = 'readiness';
 
-	public const SECTION_PRODUCTS = 'products';
-
 	/**
-	 * Product checks the Product checks section leaves out: product image alt text repeats the images_have_alt store check.
+	 * Product checks that Readiness check leaves out: product image alt text repeats the images_have_alt store check.
 	 */
 	private const HIDDEN_PRODUCT_CHECKS = array( 'image_alt_text' );
 
@@ -159,15 +157,14 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	}
 
 	/**
-	 * AI shopping holds the settings; Store readiness and Product checks show the last scan.
+	 * AI shopping holds the settings; Readiness check shows the last scan.
 	 *
 	 * @return array<string, string>
 	 */
 	protected function get_own_sections() {
 		return array(
 			''                      => __( 'AI shopping', 'woocommerce' ),
-			self::SECTION_READINESS => __( 'Store readiness', 'woocommerce' ),
-			self::SECTION_PRODUCTS  => __( 'Product checks', 'woocommerce' ),
+			self::SECTION_READINESS => __( 'Readiness check', 'woocommerce' ),
 		);
 	}
 
@@ -196,14 +193,10 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 		$this->enqueue_script( count( $failing ) );
 
 		echo '<div class="wc-agentic-commerce">';
-		if ( self::SECTION_READINESS === $section || self::SECTION_PRODUCTS === $section ) {
-			// These sections show results only; nothing on them saves with Save changes.
+		if ( self::SECTION_READINESS === $section ) {
+			// Results only; nothing here saves with Save changes.
 			$GLOBALS['hide_save_button'] = true;
-			if ( self::SECTION_READINESS === $section ) {
-				$this->render_readiness( $this->visible_store_checks( $report, $checks ), $launched, $report );
-			} else {
-				$this->render_product_checks( $report );
-			}
+			$this->render_readiness( $this->visible_store_checks( $report, $checks ), $launched, $report );
 			echo '</div>';
 			return;
 		}
@@ -404,21 +397,17 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	}
 
 	/**
-	 * The Product checks section: how many products each channel can list, then each
-	 * failing product check with the channels it matters to and a link to its products.
+	 * The product group of Readiness check: how many products each channel can list, then each
+	 * failing product check with the channels that require it and a link to its products.
 	 *
-	 * @param array<string, mixed>|null $report Stored report, or null before the first scan.
+	 * @param array<string, mixed> $report Stored report.
 	 */
-	private function render_product_checks( ?array $report ): void {
-		echo '<div class="wc-agentic-commerce-card wc-agentic-commerce-products">';
-		echo '<div class="wc-agentic-commerce-card__header"><h2>' . esc_html__( 'Product checks', 'woocommerce' ) . '</h2>';
-		echo '<p>' . esc_html__( 'Each AI shopping channel has its own rules for product data. Products that miss a required field can\'t be listed there.', 'woocommerce' ) . '</p>';
-		$this->render_run( $report );
-		echo '</div>';
-		if ( null === $report ) {
-			echo '<p class="wc-agentic-commerce-card__body">' . esc_html__( 'Results appear after the first agent readiness check.', 'woocommerce' ) . '</p></div>';
-			return;
-		}
+	private function render_product_checks( array $report ): void {
+		$failing = self::failing_product_checks( $report );
+		$badge   = array() === $failing ? array( 'pass', __( 'All passed', 'woocommerce' ) ) : self::group_badge( array_fill( 0, count( $failing ), array( 'ok' => false ) ) );
+		echo '<div class="wc-agentic-commerce-card__section wc-agentic-commerce-products" id="wc-agentic-commerce-group-products">';
+		printf( '<h3>%1$s <mark class="wc-agentic-commerce-badge wc-agentic-commerce-badge--%2$s">%3$s</mark></h3>', esc_html__( 'Can shopping channels list your products?', 'woocommerce' ), esc_attr( $badge[0] ), esc_html( $badge[1] ) );
+		echo '<p>' . esc_html__( 'Each channel has its own rules for product data. Products that miss a required field can\'t be listed there.', 'woocommerce' ) . '</p>';
 
 		$channels = is_array( $report['channels'] ?? null ) ? $report['channels'] : array();
 		$linked   = ! empty( $report['failures_stored'] );
@@ -444,9 +433,8 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 		}
 		echo '</ul>';
 
-		$failing = self::failing_product_checks( $report );
 		if ( array() === $failing ) {
-			echo '<p class="wc-agentic-commerce-card__body">' . esc_html__( 'Every product passed every check.', 'woocommerce' ) . '</p></div>';
+			echo '<p>' . esc_html__( 'Every product passed every check.', 'woocommerce' ) . '</p></div>';
 			return;
 		}
 		echo '<ul class="wc-agentic-commerce-problems">';
@@ -624,32 +612,22 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	}
 
 	/**
-	 * The last row of Status: links to Store readiness and Product checks, with how many problems each found.
+	 * The last row of Status: a link to Readiness check with how many issues the store and product checks found.
 	 *
 	 * @param array<string, mixed>|null                                                                                                     $report Stored report, or null before the first scan.
 	 * @param array<int, array{id:string,ok:bool,blocks:string,level:string,name:string,label:string,why:string,fix:string,fix_url:string}> $checks Store conditions.
 	 */
 	private function render_result_links( ?array $report, array $checks ): void {
-		$problems = count( self::failing_product_checks( $report ) );
-		/* translators: %d: number of issues. */
-		$products = $problems > 0 ? array( 'check', sprintf( _n( '%d issue', '%d issues', $problems, 'woocommerce' ), $problems ) ) : array( 'pass', __( 'No issues', 'woocommerce' ) );
-		$labels   = $this->get_own_sections();
-		$links    = array(
-			self::SECTION_READINESS => array( $labels[ self::SECTION_READINESS ], self::group_badge( $this->visible_store_checks( $report, $checks ) ) ),
-			self::SECTION_PRODUCTS  => array( $labels[ self::SECTION_PRODUCTS ], $products ),
+		// Each failing product check counts as one issue, like a failing store check.
+		$results = array_merge( $this->visible_store_checks( $report, $checks ), array_fill( 0, count( self::failing_product_checks( $report ) ), array( 'ok' => false ) ) );
+		$badge   = null === $report ? array( 'off', __( 'Not checked yet', 'woocommerce' ) ) : self::group_badge( $results );
+		printf(
+			'<ul class="wc-agentic-commerce-results"><li><a href="%1$s">%2$s</a> <mark class="wc-agentic-commerce-badge wc-agentic-commerce-badge--%3$s">%4$s</mark></li></ul>',
+			esc_url( self::section_url( self::SECTION_READINESS ) ),
+			esc_html( $this->get_own_sections()[ self::SECTION_READINESS ] ),
+			esc_attr( $badge[0] ),
+			esc_html( $badge[1] )
 		);
-		echo '<ul class="wc-agentic-commerce-results">';
-		foreach ( $links as $section => $link ) {
-			$badge = null === $report ? array( 'off', __( 'Not checked yet', 'woocommerce' ) ) : $link[1];
-			printf(
-				'<li><a href="%1$s">%2$s</a> <mark class="wc-agentic-commerce-badge wc-agentic-commerce-badge--%3$s">%4$s</mark></li>',
-				esc_url( self::section_url( $section ) ),
-				esc_html( $link[0] ),
-				esc_attr( $badge[0] ),
-				esc_html( $badge[1] )
-			);
-		}
-		echo '</ul>';
 	}
 
 	/**
@@ -793,9 +771,9 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	}
 
 	/**
-	 * The Store readiness section: the checks the last scan ran on what the store returns,
-	 * under the merchant question each answers. Problems show first and passed checks are
-	 * folded. They never affect the switch, so they sit apart from the setup steps in Status.
+	 * The Readiness check section: the checks the last scan ran on what the store returns,
+	 * under the merchant question each answers, then the product checks. Problems show first
+	 * and passed checks are folded. They never affect the switch, so they sit apart from Status.
 	 *
 	 * @param array<int, array{id:string,ok:bool|null,blocks:string,group?:string,level:string,name:string,label?:string,why:string,fix:string,fix_url:string,conflict?:bool,pending?:string,seen_at?:string,plugins?:array<int,string>}> $checks   Scanned checks to show.
 	 * @param bool                                                                                                                                                                                                                        $launched Whether the store is launched.
@@ -817,8 +795,8 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 		?>
 		<div class="wc-agentic-commerce-card wc-agentic-commerce-readiness">
 			<div class="wc-agentic-commerce-card__header">
-				<h2><?php esc_html_e( 'Store readiness', 'woocommerce' ); ?></h2>
-				<p><?php esc_html_e( 'What agents get when they visit your store, from the last check.', 'woocommerce' ); ?></p>
+				<h2><?php esc_html_e( 'Readiness check', 'woocommerce' ); ?></h2>
+				<p><?php esc_html_e( 'What agents get when they visit your store and read your products, from the last check.', 'woocommerce' ); ?></p>
 				<?php $this->render_run( $report ); ?>
 			</div>
 			<?php if ( null === $report ) : ?>
@@ -845,6 +823,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 						?>
 					</div>
 				<?php endforeach; ?>
+				<?php $this->render_product_checks( $report ); ?>
 				<?php $this->render_declared( is_array( $report['declared'] ?? null ) ? $report['declared'] : array() ); ?>
 			<?php endif; ?>
 		</div>

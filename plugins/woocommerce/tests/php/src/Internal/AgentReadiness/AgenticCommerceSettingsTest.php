@@ -397,7 +397,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 	}
 
 	/**
-	 * @testdox Product checks shows what each channel can list and each failing check with its Required by tags and a filtered list link, without the alt text check; a failing setup check says what to do.
+	 * @testdox Readiness check shows what each channel can list and each failing check with its Required by tags and a filtered list link, without the alt text check; a failing setup check says what to do.
 	 */
 	public function test_output_product_checks_and_store_check_detail(): void {
 		$product = WC_Helper_Product::create_simple_product();
@@ -407,9 +407,10 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		update_option( 'blog_public', '0' );
 		wc_get_container()->get( AgentReadiness::class )->refresh_report();
 
-		$html = $this->render_page( AgenticCommerceSettingsPage::SECTION_PRODUCTS );
+		$html = $this->render_page( AgenticCommerceSettingsPage::SECTION_READINESS );
 
 		$this->assertGreaterThan( 0, array_column( get_option( AgentReadiness::REPORT_OPTION )['checks'], 'count', 'id' )['image_alt_text'] ?? 0, 'The scan found the missing alt text' );
+		$this->assertMatchesRegularExpression( '#Can shopping channels list your products\? <mark[^>]*>\d+ issues?</mark>#', $html, 'Products are the last question' );
 		$this->assertStringContainsString( '<span>ChatGPT</span> <strong>0</strong> of 1 can be listed', $html );
 		$this->assertStringContainsString( 'Required by ChatGPT', $html );
 		$this->assertStringNotContainsString( 'Harder to find on', $html, 'Only channels that can\'t list the product are tagged' );
@@ -422,7 +423,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 	}
 
 	/**
-	 * @testdox The tab has three sections; Status links to the two result sections with their issue counts, and those sections have no Save changes button.
+	 * @testdox The tab has two sections; Status links to Readiness check with the store and product issues counted together, and it has no Save changes button.
 	 */
 	public function test_sections_and_status_links(): void {
 		update_option(
@@ -458,18 +459,16 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 			false
 		);
 
-		$this->assertSame( array( '', 'readiness', 'products' ), array_keys( $this->page()->get_sections() ) );
+		$this->assertSame( array( '', 'readiness' ), array_keys( $this->page()->get_sections() ) );
 
 		$html = $this->render_page();
-		$this->assertMatchesRegularExpression( '#section=readiness">Store readiness</a> <mark[^>]*>1 issue</mark>#', $html );
-		$this->assertMatchesRegularExpression( '#section=products">Product checks</a> <mark[^>]*>1 issue</mark>#', $html, 'The alt text check is not counted' );
+		$this->assertMatchesRegularExpression( '#section=readiness">Readiness check</a> <mark[^>]*>2 issues</mark>#', $html, 'One store and one product issue; the alt text check is not counted' );
+		$this->assertSame( 1, substr_count( $html, 'wc-agentic-commerce-results"><li>' ), 'One results row' );
 		$this->assertFalse( $this->save_hidden, 'AI shopping saves the store policy fields' );
 
-		$this->render_page( AgenticCommerceSettingsPage::SECTION_READINESS );
+		$html = $this->render_page( AgenticCommerceSettingsPage::SECTION_READINESS );
 		$this->assertTrue( $this->save_hidden );
-
-		$html = $this->render_page( AgenticCommerceSettingsPage::SECTION_PRODUCTS );
-		$this->assertTrue( $this->save_hidden );
+		$this->assertMatchesRegularExpression( '#Can shopping channels list your products\? <mark[^>]*>1 issue</mark>#', $html, 'The product checks are the last question' );
 		$this->assertStringContainsString( '<p>2 products</p>', $html, 'A report without stored failures has no filtered list to link to' );
 		$this->assertStringNotContainsString( 'View 2 products', $html );
 	}
@@ -500,7 +499,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 			false
 		);
 
-		$this->assertMatchesRegularExpression( '#Store readiness</a> <mark class="wc-agentic-commerce-badge wc-agentic-commerce-badge--off">No issues</mark>#', $this->render_page() );
+		$this->assertMatchesRegularExpression( '#Readiness check</a> <mark class="wc-agentic-commerce-badge wc-agentic-commerce-badge--off">No issues</mark>#', $this->render_page() );
 	}
 
 	/**
@@ -512,7 +511,8 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 
 		$html = $this->render_page( AgenticCommerceSettingsPage::SECTION_READINESS );
 		$this->assertDoesNotMatchRegularExpression( '/wc-agentic-commerce-run"[^>]*disabled/', $html );
-		$this->assertStringContainsString( 'Results appear after the first agent readiness check.', $this->render_page( AgenticCommerceSettingsPage::SECTION_PRODUCTS ), 'No product checks before the first scan' );
+		$this->assertStringContainsString( 'Results appear after the first agent readiness check.', $html, 'No results before the first scan' );
+		$this->assertStringNotContainsString( 'Can shopping channels list your products?', $html );
 
 		wc_get_container()->get( ScheduledScan::class )->queue();
 		$html = $this->render_page( AgenticCommerceSettingsPage::SECTION_READINESS );
