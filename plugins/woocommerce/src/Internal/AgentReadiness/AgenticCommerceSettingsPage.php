@@ -140,7 +140,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 			array(
 				'title' => __( 'Store policies', 'woocommerce' ),
 				'type'  => 'title',
-				'desc'  => __( 'AI agents share these with shoppers before they buy, so they know your return, shipping and privacy terms up front. Agents link to your pages.', 'woocommerce' ),
+				'desc'  => __( 'AI assistants share these with customers before they buy. Changing a page here changes it everywhere in your store.', 'woocommerce' ),
 				'id'    => self::POLICIES_SECTION,
 			),
 			$page_field( AgenticCommerceSettings::REFUND_RETURNS_PAGE_OPTION, __( 'Refund and returns', 'woocommerce' ) ),
@@ -204,7 +204,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 		echo '<p class="wc-agentic-commerce-intro">' . esc_html__( 'Let AI shopping assistants find your products, build a cart, and send shoppers to your checkout to pay. Uses the Universal Commerce Protocol (UCP).', 'woocommerce' ) . '</p>';
 		$this->render_switch( $checks, count( $failing ) );
 		$this->render_visibility( $report );
-		$this->render_status( $checks, $this->ucp_switch->status( $failing ), count( $failing ), $report );
+		$this->render_status( $checks, $this->ucp_switch->status( $failing ), $report );
 
 		echo '<div class="wc-agentic-commerce-card wc-agentic-commerce-policies">';
 		parent::output();
@@ -313,7 +313,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	 */
 	private function render_visibility( ?array $report ): void {
 		echo '<div class="wc-agentic-commerce-card">';
-		echo '<div class="wc-agentic-commerce-card__header"><h2>' . esc_html__( 'What agents can see', 'woocommerce' ) . '</h2>';
+		echo '<div class="wc-agentic-commerce-card__header"><h2>' . esc_html__( 'What AI assistants can see', 'woocommerce' ) . '</h2>';
 		echo '<p>' . esc_html__( 'Agents see the same products shoppers see in your shop. To keep a product away from agents, set its catalog visibility to Hidden.', 'woocommerce' ) . '</p></div>';
 
 		if ( null === $report ) {
@@ -442,7 +442,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 			$tags = empty( $check['channels'] ) ? array( esc_html__( 'Product page only', 'woocommerce' ) ) : $this->channel_tags( (array) $check['channels'], $channels );
 			self::render_item(
 				'open',
-				esc_html( (string) ( $check['label'] ?? '' ) ) . ( array() === $tags ? '' : ' ' . implode( ' ', $tags ) ),
+				esc_html( self::product_check_title( $check ) ) . ( array() === $tags ? '' : ' ' . implode( ' ', $tags ) ),
 				array(
 					esc_html( trim( (string) ( $check['why'] ?? '' ) . ' ' . (string) ( $check['fix'] ?? '' ) ) ),
 					self::products_link( (int) $check['count'], (string) ( $check['id'] ?? '' ), $linked ),
@@ -450,6 +450,56 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 			);
 		}
 		echo '</ul></div>';
+	}
+
+	/**
+	 * A failing product check's title, counted: "3 products have no brand". A check this page
+	 * has no counted title for keeps the label the scan stored.
+	 *
+	 * @param array<string, mixed> $check Failing product check from the report.
+	 */
+	private static function product_check_title( array $check ): string {
+		$count = (int) ( $check['count'] ?? 0 );
+		$n     = number_format_i18n( $count );
+		switch ( $check['id'] ?? '' ) {
+			case 'missing_brand':
+				/* translators: %s: number of products. */
+				return sprintf( _n( '%s product has no brand', '%s products have no brand', $count, 'woocommerce' ), $n );
+			case 'missing_gtin':
+				/* translators: %s: number of products. */
+				return sprintf( _n( '%s product has no GTIN', '%s products have no GTIN', $count, 'woocommerce' ), $n );
+			case 'invalid_gtin':
+				/* translators: %s: number of products. */
+				return sprintf( _n( '%s product has an invalid GTIN', '%s products have an invalid GTIN', $count, 'woocommerce' ), $n );
+			case 'duplicate_gtin':
+				/* translators: %s: number of products. */
+				return sprintf( _n( '%s product shares its GTIN with another product', '%s products share a GTIN with another product', $count, 'woocommerce' ), $n );
+			case 'missing_regular_price':
+				/* translators: %s: number of products. */
+				return sprintf( _n( '%s product has no price', '%s products have no price', $count, 'woocommerce' ), $n );
+			case 'missing_images':
+				/* translators: %s: number of products. */
+				return sprintf( _n( '%s product has no main image', '%s products have no main image', $count, 'woocommerce' ), $n );
+			case 'image_too_small':
+				/* translators: %s: number of products. */
+				return sprintf( _n( '%s product has a main image under 500 x 500 pixels', '%s products have a main image under 500 x 500 pixels', $count, 'woocommerce' ), $n );
+			case 'missing_product_text':
+				/* translators: %s: number of products. */
+				return sprintf( _n( '%s product has no description', '%s products have no description', $count, 'woocommerce' ), $n );
+			case 'uncategorised':
+				/* translators: %s: number of products. */
+				return sprintf( _n( '%s product has only the default category', '%s products have only the default category', $count, 'woocommerce' ), $n );
+			case 'variation_attributes_not_set':
+				/* translators: %s: number of products. */
+				return sprintf( _n( '%s product has variations set to "Any"', '%s products have variations set to "Any"', $count, 'woocommerce' ), $n );
+			case 'missing_variation_images':
+				/* translators: %s: number of products. */
+				return sprintf( _n( '%s product has variations with no image', '%s products have variations with no image', $count, 'woocommerce' ), $n );
+			case 'title_too_long':
+				/* translators: %s: number of products. */
+				return sprintf( _n( '%s product has a title over 150 characters', '%s products have titles over 150 characters', $count, 'woocommerce' ), $n );
+		}
+		return (string) ( $check['label'] ?? '' );
 	}
 
 	/**
@@ -543,10 +593,9 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	 *
 	 * @param array<int, array{id:string,ok:bool,blocks:string,level:string,name:string,label:string,why:string,fix:string,fix_url:string}> $checks           Store conditions.
 	 * @param string                                                                                                                        $status           UcpSwitch status.
-	 * @param int                                                                                                                           $failing_required Number of failing required setup checks.
 	 * @param array<string, mixed>|null                                                                                                     $report           Stored report, or null before the first scan.
 	 */
-	private function render_status( array $checks, string $status, int $failing_required, ?array $report ): void {
+	private function render_status( array $checks, string $status, ?array $report ): void {
 		$statuses = self::status_labels();
 		$classes  = array(
 			UcpSwitch::STATUS_ACTIVE          => 'pass',
@@ -558,10 +607,10 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 		$open     = array_diff_key( $steps, $done );
 		// Required first; usort keeps the order within each level.
 		usort( $open, static fn( array $a, array $b ): int => ( StoreConditions::LEVEL_REQUIRED === $b['level'] ) <=> ( StoreConditions::LEVEL_REQUIRED === $a['level'] ) );
-		$summary = $failing_required > 0
-			/* translators: %d: number of failing required setup checks. */
-			? sprintf( _n( '%d required step to finish so agents can shop your store.', '%d required steps to finish so agents can shop your store.', $failing_required, 'woocommerce' ), $failing_required )
-			: __( 'Everything agents need is set up.', 'woocommerce' );
+		$summary = array() !== $open
+			/* translators: %d: number of open setup steps. */
+			? sprintf( _n( '%d step left.', '%d steps left.', count( $open ), 'woocommerce' ), count( $open ) )
+			: __( 'Everything AI assistants need is set up.', 'woocommerce' );
 		?>
 		<div class="wc-agentic-commerce-card wc-agentic-commerce-status-card">
 			<div class="wc-agentic-commerce-card__header wc-agentic-commerce-card__header--split">
@@ -639,7 +688,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 			$summary = sprintf( __( 'For information only. %1$d of %2$d found.', 'woocommerce' ), $found, count( $items ) );
 		}
 		echo '<div class="wc-agentic-commerce-card wc-agentic-commerce-question wc-agentic-commerce-declared-section" id="wc-agentic-commerce-group-declared">';
-		echo '<div class="wc-agentic-commerce-card__header"><h2>' . esc_html__( 'What your store tells agents', 'woocommerce' ) . '</h2>';
+		echo '<div class="wc-agentic-commerce-card__header"><h2>' . esc_html__( 'What your store tells AI assistants', 'woocommerce' ) . '</h2>';
 		echo '<p>' . esc_html( $summary ) . ' ' . esc_html__( 'Most stores don\'t need these, and none of them counts as a problem.', 'woocommerce' ) . '</p></div>';
 		/* translators: %d: number of items. */
 		self::open_more( sprintf( _n( 'Show the %d item', 'Show the %d items', count( $items ), 'woocommerce' ), count( $items ) ) );
@@ -703,7 +752,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 			}
 			$lines[] = esc_html( $check['fix'] );
 			if ( '' !== $check['fix_url'] ) {
-				$lines[] = '<a href="' . esc_url( $check['fix_url'] ) . '">' . ( str_starts_with( $check['fix_url'], admin_url() ) ? esc_html__( 'Open settings', 'woocommerce' ) : esc_html__( 'Learn how', 'woocommerce' ) ) . '</a>';
+				$lines[] = '<a href="' . esc_url( $check['fix_url'] ) . '">' . self::fix_link_text( $check['fix_url'] ) . '</a>';
 			}
 			$title = '' !== ( $check['label'] ?? '' ) ? $check['label'] : $check['name'];
 			self::render_item( 'open', esc_html( $title ) . ( $conflict ? ' <mark class="wc-agentic-commerce-badge wc-agentic-commerce-badge--check">' . esc_html__( 'Likely conflict', 'woocommerce' ) . '</mark>' : '' ), $lines );
@@ -751,6 +800,19 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	}
 
 	/**
+	 * The text of a failing check's fix link: where it goes.
+	 *
+	 * @param string $url Fix URL.
+	 * @return string Escaped text.
+	 */
+	private static function fix_link_text( string $url ): string {
+		if ( str_starts_with( $url, admin_url( 'upload.php' ) ) ) {
+			return esc_html__( 'Go to Media library', 'woocommerce' );
+		}
+		return str_starts_with( $url, admin_url() ) ? esc_html__( 'Open settings', 'woocommerce' ) : esc_html__( 'Learn how', 'woocommerce' );
+	}
+
+	/**
 	 * Open a fold: "Show …" while closed, "Hide" while open. The caller closes the details element.
 	 *
 	 * @param string $show Text while closed.
@@ -789,7 +851,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	 */
 	private function render_readiness( array $checks, bool $launched, ?array $report ): void {
 		$groups = array(
-			'access'     => array( __( 'Can agents get in?', 'woocommerce' ), array() ),
+			'access'     => array( __( 'Can AI assistants get in?', 'woocommerce' ), array() ),
 			'find'       => array( __( 'Can they find your store?', 'woocommerce' ), array() ),
 			'understand' => array( __( 'Do they understand your products?', 'woocommerce' ), array() ),
 			'buy'        => array( __( 'Can they buy?', 'woocommerce' ), array() ),
@@ -854,7 +916,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 			$page_id = (int) get_option( $policies[ $check['id'] ][0] );
 			$edit    = $page_id > 0 && get_post( $page_id ) ? (string) get_edit_post_link( $page_id, 'raw' ) : '';
 			return '' !== $edit
-				? array( $policies[ $check['id'] ][1], __( 'It\'s still a draft. Agents only link to published pages.', 'woocommerce' ), $edit )
+				? array( $policies[ $check['id'] ][1], __( 'It\'s still a draft. AI assistants only link to published pages.', 'woocommerce' ), $edit )
 				: array( $policies[ $check['id'] ][2], $check['why'], $check['fix_url'] );
 		}
 		$actions = array(

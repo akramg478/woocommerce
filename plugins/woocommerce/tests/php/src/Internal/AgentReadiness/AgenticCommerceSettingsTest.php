@@ -145,7 +145,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 
 		$html = $this->render_page();
 
-		$this->assertStringContainsString( 'Everything agents need is set up.', $html );
+		$this->assertMatchesRegularExpression( '#<p>(\d+ steps? left\.|Everything AI assistants need is set up\.)</p>#', $html );
 		$this->assertStringNotContainsString( 'wc-agentic-commerce-item--required', $html );
 		$this->assertMatchesRegularExpression( '#Show \d+ completed steps?</span>#', $html, 'Completed steps are folded' );
 		$this->assertStringContainsString( 'Privacy policy page is selected', $html, 'Done rows are named by their passing state' );
@@ -179,7 +179,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$html = $this->render_page();
 
 		$this->assertStringContainsString( 'Publish your refund and returns policy page', $html );
-		$this->assertStringContainsString( 'It&#039;s still a draft. Agents only link to published pages.', $html );
+		$this->assertStringContainsString( 'It&#039;s still a draft. AI assistants only link to published pages.', $html );
 		$this->assertStringContainsString( 'post=' . $draft . '&amp;action=edit">Publish your refund and returns policy page</a>', $html, 'The step links to the page editor' );
 	}
 
@@ -304,7 +304,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 
 		$html = $this->render_page( AgenticCommerceSettingsPage::SECTION_READINESS );
 
-		foreach ( array( 'Can agents get in?', 'Can they find your store?', 'Do they understand your products?', 'Can they buy?' ) as $question ) {
+		foreach ( array( 'Can AI assistants get in?', 'Can they find your store?', 'Do they understand your products?', 'Can they buy?' ) as $question ) {
 			$this->assertStringContainsString( $question, $html );
 		}
 		$this->assertStringContainsString( 'Agent shopping is off, so the UCP checks don&#039;t run.', $html, 'UCP is off in this test' );
@@ -470,6 +470,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$this->assertMatchesRegularExpression( '#Can shopping channels list your products\?</h2> <mark[^>]*>1 issue</mark>#', $html );
 		$this->assertLessThan( strpos( $html, 'Can they buy?' ), strpos( $html, 'Can shopping channels list your products?' ), 'Products come before Can they buy?' );
 		$this->assertStringContainsString( '<p class="description">2 products</p>', $html, 'A report without stored failures has no filtered list to link to' );
+		$this->assertStringContainsString( '2 products have no brand', $html, 'Product check titles lead with the count' );
 		$this->assertStringNotContainsString( 'View 2 products', $html );
 	}
 
@@ -534,7 +535,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$this->assertMatchesRegularExpression( '#Readiness check</a> <mark[^>]*>1 issue</mark>#', $this->render_page(), 'Status counts the same checks' );
 		$this->assertMatchesRegularExpression( '#Can they buy\?</h2> <mark[^>]*>1 issue</mark>#', $html );
 		$this->assertStringContainsString( 'policy_pages_linked fix', $html );
-		$this->assertStringContainsString( '>Open settings</a>', $html );
+		$this->assertStringContainsString( '>Go to Media library</a>', $html, 'A fix in the media library says where it goes' );
 		$this->assertStringContainsString( '>Check again</button>', $html, 'Once a check has run, the button runs it again' );
 	}
 

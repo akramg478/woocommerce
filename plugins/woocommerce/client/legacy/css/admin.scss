@@ -10055,6 +10055,17 @@ body.woocommerce-settings-payments-section_legacy {
 	&[open] .wc-agentic-commerce-more__hide {
 		display: inline;
 	}
+
+	&--js[open] > summary {
+		display: none;
+	}
+
+	.wc-agentic-commerce-more__close {
+		margin-block-start: 8px;
+		color: var(--wp-admin-theme-color, #2271b1);
+		font-weight: 600;
+		text-decoration: none;
+	}
 }
 
 .wc-agentic-commerce-ucp-switch {

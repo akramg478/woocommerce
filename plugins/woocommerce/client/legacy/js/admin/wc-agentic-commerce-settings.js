@@ -77,6 +77,25 @@
 		} );
 	}
 
+	// "Hide" goes below an opened fold, as a button that closes it; without this script the summary toggles.
+	document.querySelectorAll( '.wc-agentic-commerce-more' ).forEach( ( details ) => {
+		const summary = details.querySelector( ':scope > summary' );
+		const label = summary && summary.querySelector( '.wc-agentic-commerce-more__hide' );
+		if ( ! label ) {
+			return;
+		}
+		const hide = document.createElement( 'button' );
+		hide.type = 'button';
+		hide.className = 'button-link wc-agentic-commerce-more__close';
+		hide.textContent = label.textContent;
+		hide.addEventListener( 'click', () => {
+			details.open = false;
+			summary.focus();
+		} );
+		details.append( hide );
+		details.classList.add( 'wc-agentic-commerce-more--js' );
+	} );
+
 	document.querySelectorAll( '.wc-agentic-commerce-copy' ).forEach( ( button ) => {
 		button.addEventListener( 'click', async () => {
 			const input = document.getElementById( button.dataset.copyTarget );
