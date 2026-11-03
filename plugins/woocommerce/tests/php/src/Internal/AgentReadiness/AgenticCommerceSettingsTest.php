@@ -240,18 +240,17 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 	}
 
 	/**
-	 * @testdox With UCP already on and a required check failing, the switch says the checks still need fixing.
+	 * @testdox With UCP already on and a required check failing, the switch is on and leaves the required steps to Status.
 	 */
 	public function test_output_switch_on_with_failing_checks(): void {
-		global $current_section;
+		// page() turns UCP off, so build the page first.
 		$page = $this->page();
 		update_option( 'woocommerce_feature_ucp_enabled', 'yes' );
 
-		$current_section = AgenticCommerceSettingsPage::SECTION_SHOPPING;
 		ob_start();
 		$page->output();
-		$html            = (string) ob_get_clean();
-		$current_section = '';
+		$html = (string) ob_get_clean();
+
 		$this->assertStringContainsString( 'aria-checked="true"', $html );
 		$this->assertStringContainsString( '<p class="wc-agentic-commerce-ucp-message" role="status"></p>', $html, 'Status lists the required steps, so the switch adds no message' );
 	}
