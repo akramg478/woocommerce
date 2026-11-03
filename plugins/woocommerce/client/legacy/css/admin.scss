@@ -9965,8 +9965,7 @@ body.woocommerce-settings-payments-section_legacy {
 	}
 }
 
-.wc-agentic-commerce-results,
-.wc-agentic-commerce-problems {
+.wc-agentic-commerce-results {
 	margin: 0;
 
 	li {
@@ -9994,18 +9993,103 @@ body.woocommerce-settings-payments-section_legacy {
 	align-items: center;
 }
 
-.wc-agentic-commerce-card__section .wc-agentic-commerce-problems li {
-	padding-inline: 0;
+.wc-agentic-commerce-question {
+	padding-block-end: 8px;
+
+	.wc-agentic-commerce-card__header--split {
+		align-items: center;
+	}
+
+	&__intro {
+		margin: 0;
+		padding: 0 24px 16px;
+		color: #50575e;
+	}
+
+	.wc-agentic-commerce-counts {
+		border-block-end: 1px solid #f0f0f1;
+	}
+
+	.notice {
+		margin: 0 24px 16px;
+	}
 }
 
-.wc-agentic-commerce-readiness h3 .wc-agentic-commerce-badge {
-	margin-inline-start: 8px;
-	font-size: 12px;
+.wc-agentic-commerce-items {
+	margin: 0 24px;
 }
 
-.wc-agentic-commerce-checks + details,
-.wc-agentic-commerce-checks ~ h4 {
-	margin-block-start: 12px;
+.wc-agentic-commerce-item {
+	display: flex;
+	gap: 12px;
+	margin: 0;
+	padding: 12px 0;
+	border-block-end: 1px solid #f0f0f1;
+
+	p {
+		margin: 0 0 2px;
+	}
+
+	&__title {
+		font-weight: 600;
+
+		.wc-agentic-commerce-badge {
+			margin-inline-start: 8px;
+			font-weight: 400;
+		}
+	}
+
+	&__icon {
+		flex: none;
+		inline-size: 14px;
+		block-size: 14px;
+		margin-block-start: 2px;
+		border: 2px dashed #a7aaad;
+		border-radius: 50%;
+	}
+
+	&--pass &__icon {
+		border: 0;
+
+		&::before {
+			content: "\2713";
+			color: $green;
+			font-weight: 600;
+		}
+	}
+}
+
+.wc-agentic-commerce-more {
+	padding: 12px 24px 8px;
+
+	> summary {
+		color: var(--wp-admin-theme-color, #2271b1);
+		font-weight: 600;
+		cursor: pointer;
+		list-style: none;
+
+		&::-webkit-details-marker {
+			display: none;
+		}
+	}
+
+	> .wc-agentic-commerce-items {
+		margin: 8px 0 0;
+	}
+
+	> .wc-agentic-commerce-declared {
+		margin: 8px 0 0;
+		inline-size: 100%;
+	}
+
+	.wc-agentic-commerce-more__hide,
+	&[open] .wc-agentic-commerce-more__show {
+		display: none;
+	}
+
+	&[open] .wc-agentic-commerce-more__hide {
+		display: inline;
+	}
 }
 
 .wc-agentic-commerce-ucp-switch {

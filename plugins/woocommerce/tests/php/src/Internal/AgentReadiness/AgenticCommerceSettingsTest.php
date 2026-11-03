@@ -306,8 +306,8 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 			$this->assertStringContainsString( $question, $html );
 		}
 		$this->assertStringContainsString( 'Agent shopping is off, so the UCP checks don&#039;t run.', $html, 'UCP is off in this test' );
-		$this->assertMatchesRegularExpression( '#Do they understand your products\? <mark[^>]*>1 issue</mark>#', $html, 'The failing check is the issue; the unrun one is hidden' );
-		$this->assertMatchesRegularExpression( '#Can they find your store\? <mark[^>]*>All passed</mark>#', $html );
+		$this->assertMatchesRegularExpression( '#Do they understand your products\?</h2> <mark[^>]*>1 issue</mark>#', $html, 'The failing check is the issue; the unrun one is hidden' );
+		$this->assertMatchesRegularExpression( '#Can they find your store\?</h2> <mark[^>]*>All passed</mark>#', $html );
 		$this->assertStringContainsString( 'Likely conflict', $html );
 		$this->assertStringContainsString( 'Something on your store may be replacing this.', $html );
 		$this->assertStringContainsString( 'Seen on: <a href="https://example.org/product/mug/">https://example.org/product/mug/</a>', $html, 'A conflict names the page' );
@@ -316,7 +316,8 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$this->assertStringContainsString( 'product_jsonld_present label', $html, 'A failing check is named by its failing title' );
 		$this->assertStringNotContainsString( 'product_jsonld_present name', $html );
 		$this->assertStringNotContainsString( 'sitemap_lists_products label', $html, 'A passed check keeps its passing title' );
-		$this->assertMatchesRegularExpression( '#<details><summary>Show 1 more check</summary>.*sitemap_lists_products name.*</details>#s', $html );
+		$this->assertMatchesRegularExpression( '#<summary><span class="wc-agentic-commerce-more__show">Show 1 more check</span><span class="wc-agentic-commerce-more__hide">Hide</span></summary>.*sitemap_lists_products name.*</details>#s', $html, 'Passed checks are folded behind Show / Hide' );
+		$this->assertStringContainsString( 'sitemap_lists_products why', $html, 'A passed check keeps its why' );
 	}
 
 	/**
@@ -348,7 +349,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$this->assertStringContainsString( '1 of 2 found', $html );
 		$this->assertStringContainsString( 'Not found', $html );
 		$this->assertStringNotContainsString( 'AGENTS.md</td><td>Fix', $html );
-		$this->assertMatchesRegularExpression( '#Can they find your store\? <mark[^>]*>Not checked yet</mark>#', $html, 'Not counted as a result' );
+		$this->assertMatchesRegularExpression( '#Can they find your store\?</h2> <mark[^>]*>Not checked yet</mark>#', $html, 'Not counted as a result' );
 	}
 
 	/**
@@ -368,7 +369,8 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 
 		update_option( 'woocommerce_agent_readiness_report', $report( array( $item( null ), $item( null ), 'not an array' ) ) );
 		$html = $this->render_page( AgenticCommerceSettingsPage::SECTION_READINESS );
-		$this->assertStringContainsString( '<summary>Not checked</summary>', $html );
+		$this->assertStringContainsString( 'For information only. Not checked.', $html );
+		$this->assertStringContainsString( 'Show the 2 items', $html, 'The list is folded' );
 		$this->assertStringNotContainsString( '0 of', $html );
 
 		update_option( 'woocommerce_agent_readiness_report', $report( array( $item( true ), $item( false ), $item( null ) ) ) );
@@ -410,7 +412,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$html = $this->render_page( AgenticCommerceSettingsPage::SECTION_READINESS );
 
 		$this->assertGreaterThan( 0, array_column( get_option( AgentReadiness::REPORT_OPTION )['checks'], 'count', 'id' )['image_alt_text'] ?? 0, 'The scan found the missing alt text' );
-		$this->assertMatchesRegularExpression( '#Can shopping channels list your products\? <mark[^>]*>\d+ issues?</mark>#', $html, 'Products are the last question' );
+		$this->assertMatchesRegularExpression( '#Can shopping channels list your products\?</h2> <mark[^>]*>\d+ issues?</mark>#', $html, 'Products have their own question' );
 		$this->assertStringContainsString( '<span>ChatGPT</span> <strong>0</strong> of 1 can be listed', $html );
 		$this->assertStringContainsString( 'Required by ChatGPT', $html );
 		$this->assertStringNotContainsString( 'Harder to find on', $html, 'Only channels that can\'t list the product are tagged' );
@@ -468,8 +470,9 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 
 		$html = $this->render_page( AgenticCommerceSettingsPage::SECTION_READINESS );
 		$this->assertTrue( $this->save_hidden );
-		$this->assertMatchesRegularExpression( '#Can shopping channels list your products\? <mark[^>]*>1 issue</mark>#', $html, 'The product checks are the last question' );
-		$this->assertStringContainsString( '<p>2 products</p>', $html, 'A report without stored failures has no filtered list to link to' );
+		$this->assertMatchesRegularExpression( '#Can shopping channels list your products\?</h2> <mark[^>]*>1 issue</mark>#', $html );
+		$this->assertLessThan( strpos( $html, 'Can they buy?' ), strpos( $html, 'Can shopping channels list your products?' ), 'Products come before Can they buy?' );
+		$this->assertStringContainsString( '<p class="description">2 products</p>', $html, 'A report without stored failures has no filtered list to link to' );
 		$this->assertStringNotContainsString( 'View 2 products', $html );
 	}
 
@@ -500,6 +503,41 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		);
 
 		$this->assertMatchesRegularExpression( '#Readiness check</a> <mark class="wc-agentic-commerce-badge wc-agentic-commerce-badge--off">No issues</mark>#', $this->render_page() );
+	}
+
+	/**
+	 * @testdox Checks coming in a later update aren't shown or counted, and an open check names its fix and links to it.
+	 */
+	public function test_readiness_hides_pending_checks(): void {
+		$row = static fn( string $id, ?bool $ok, string $pending = '' ): array => array(
+			'id'      => $id,
+			'ok'      => $ok,
+			'blocks'  => 'checkout',
+			'group'   => 'buy',
+			'name'    => $id . ' name',
+			'label'   => $id . ' label',
+			'why'     => $id . ' why',
+			'fix'     => $id . ' fix',
+			'fix_url' => admin_url( 'upload.php' ),
+			'pending' => $pending,
+		);
+		update_option(
+			AgentReadiness::REPORT_OPTION,
+			array(
+				'generated_at' => gmdate( 'c' ),
+				'store_checks' => array( $row( 'policy_pages_linked', false ), $row( 'product_shipping_schema', null, 'WOOPRD-3908' ) ),
+			),
+			false
+		);
+
+		$html = $this->render_page( AgenticCommerceSettingsPage::SECTION_READINESS );
+
+		$this->assertStringNotContainsString( 'product_shipping_schema', $html );
+		$this->assertStringNotContainsString( 'Coming soon', $html );
+		$this->assertMatchesRegularExpression( '#Can they buy\?</h2> <mark[^>]*>1 issue</mark>#', $html );
+		$this->assertStringContainsString( 'policy_pages_linked fix', $html );
+		$this->assertStringContainsString( '>Open settings</a>', $html );
+		$this->assertStringContainsString( '>Check again</button>', $html, 'Once a check has run, the button runs it again' );
 	}
 
 	/**
