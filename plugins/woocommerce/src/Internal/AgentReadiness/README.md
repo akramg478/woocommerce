@@ -188,20 +188,20 @@ While the feature is enabled, `ReadinessAbilities` registers abilities in the Wo
 - `woocommerce/get-agent-readiness` and `GET wc/v3/agent-readiness` both return `{ report, scan_pending }` from `AgentReadiness::get_served_report()`: settings changed since the scan show their current state, and store output checks come from the stored report.
 - `woocommerce/run-agent-readiness-check` with `product_id` checks that product now (`check_product()`) and returns its failing checks with label and fix, and its status per channel. Without one it queues the background scan, like `POST wc/v3/agent-readiness/scan`, and returns `scan_pending` and the current report's `generated_at`, so the agent knows when to read the report again.
 
-## WooCommerce AI settings page
+## AI tools settings page
 
-WooCommerce > Settings > WooCommerce AI (`AgenticCommerceSettings`, `AgenticCommerceSettingsPage`; the tab id stays `agentic-commerce`) shows while the feature is enabled. It follows the WOOPRD-3796 and WOOPRD-3947 designs, in three sections: a landing page with an AI shopping card, AI shopping (`section=shopping`, the settings) and Readiness check (`section=readiness`, the last scan's results). Only AI shopping has Save changes. Each section has a breadcrumb back to the ones above it instead of section links. AI shopping has one card per part:
+WooCommerce > Settings > AI tools (`AgenticCommerceSettings`, `AgenticCommerceSettingsPage`; the tab id stays `agentic-commerce`) shows while the feature is enabled. It follows the WOOPRD-3796 and WOOPRD-3947 designs, in three sections: a landing page with an AI shopping card (marked Active once UCP is on, with how many steps are left), and AI shopping with two tabs, Settings (`section=shopping`) and Readiness check (`section=readiness`, the last scan's results). Only Settings has Save changes. Both tabs share the breadcrumb "AI tools / AI shopping" instead of section links. Settings has one card per part:
 
 - The UCP switch, first. It saves through `POST wc/v3/agent-readiness/ucp` (`{ "enabled": true }`). Failing setup checks never block it. In coming soon mode the card says agents can't shop the store yet and links to Site visibility.
 - What AI assistants can see: Visible, Hidden and Not supported counts from the stored report (`products`, `hidden_from_catalog`, `unsupported_types`), with help tips on the last two and one link to the Products list.
 - Status: the store conditions from `StoreConditions`, the same list the readiness report shows. Open conditions are one list, failing `required` ones first (coming soon mode, HTTPS, permalinks, and the privacy, terms and refund and returns pages), marked Required; failing `recommended` ones, such as a missing shipping policy page, follow. The card says how many required steps are left to fix, or how many steps are left when none is required. Each step says why it matters and links to where to fix it; a chosen policy page that isn't published links to its editor. Passing conditions fold behind "Show N completed steps", named by their passing state (`name`). The last row links to Readiness check with how many issues the store and product checks found together.
 - Store policy pages. Refund and returns, privacy and terms are the existing options, so they stay in sync with Advanced > Page setup and Settings > Privacy; shipping policy, FAQ and warranty are new. UCP sends each as a checkout link. The dropdowns list published pages only, and saving leaves a stored draft page in place.
-- The store address agents start from (`/.well-known/ucp`), with Copy.
-- Placeholders for parts that aren't built yet: Test your setup (WOOAI-1619) and Security (WOOAI-1620).
+- The store address AI assistants start from (`/.well-known/ucp`), with Copy.
+- A placeholder for Security (WOOAI-1620), which isn't built yet.
 
 Readiness check (`section=readiness`) shows the store output checks from the stored report, since they only run in the scan. Each check names the question it answers in `group` (`access`, `find`, `understand` or `buy`), and the section shows a card per question, each with a badge: how many issues, All passed, or No issues when a check couldn't run. Failing and unchecked rows show first; passed ones are folded behind "Show N more checks", with "Hide" below the opened list. Checks waiting on a later update (`pending`) aren't shown. They are never required, so they don't affect the switch or Status. A failing row is named by its failing title (`label`) and adds why it matters and what it affects (`blocks`). The product checks are their own question, before "Can they buy?", and the declared list is last, folded.
 
-The product checks, under "Can shopping channels list your products?", show how many products each channel can list, then each failing product check, titled with its count ("3 products have no brand") and tagged "Required by" each channel that can't list a product without it, and "View N products", which opens the Products list filtered to them. Product image alt text isn't listed there, since the `images_have_alt` store check covers it. The header has "Run check" ("Check again" once a check has run) and says when the last check ran.
+The product checks, under "Can shopping channels list your products?", show how many products each channel can list ("2 of 15 can be listed"), then each failing product check, titled with its count ("3 products have no brand") and tagged "Required by" each channel that can't list a product without it, and "View N products", which opens the Products list filtered to them. Product image alt text isn't listed there, since the `images_have_alt` store check covers it. Above the cards, the tab says when the last check ran, with "Run check" ("Check again" once a check has run).
 
 Tracks event: `agentic_commerce_ucp_toggled` (`enabled`), sent only when the store allows tracking.
 
@@ -221,4 +221,4 @@ Core's UCP catalog mapper (`src/Internal/ProductFeed/Mapping/UcpProductMapper.ph
 wp option update woocommerce_feature_agent_readiness_enabled yes
 ```
 
-Then open WooCommerce > Settings > WooCommerce AI > AI shopping > Readiness check and select "Run check".
+Then open WooCommerce > Settings > AI tools > AI shopping > Readiness check and select "Run check".

@@ -115,25 +115,13 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$this->assertMatchesRegularExpression( '#<p>\d+ required steps? to fix so AI assistants can shop your store\.</p>#', $html, 'Status counts the required steps first' );
 		$this->assertStringContainsString( 'aria-checked="false"', $html );
 		$this->assertStringNotContainsString( 'to turn this on', $html, 'Failing checks never block the switch' );
-		$this->assertMatchesRegularExpression( '/but \d+ required setup checks? below still needs? fixing\./', (string) wp_scripts()->get_data( 'wc-agentic-commerce-settings', 'data' ), 'Turning the switch on shows the failing checks without a reload' );
 		$this->assertMatchesRegularExpression( '#wc-agentic-commerce-item--required.*>Required</mark>#', $html, 'Failing required checks are marked Required' );
 		$this->assertLessThan( strpos( $html, 'wc-agentic-commerce-item--open' ), strrpos( $html, 'wc-agentic-commerce-item--required' ), 'Required steps come first' );
 		$this->assertMatchesRegularExpression( '/(Choose a|Publish your) privacy policy page/', $html, 'An open check says what to do' );
-		$this->assertStringContainsString( 'Test your setup', $html, 'Placeholder until WOOAI-1619' );
+		$this->assertStringContainsString( 'Store address for AI assistants', $html );
+		$this->assertMatchesRegularExpression( '#<span>AI shopping</span></div>.*section=shopping" aria-current="page">Settings</a>#s', $html, 'AI shopping opens on its Settings tab' );
 		$this->assertStringContainsString( '<h2>Security</h2>', $html, 'Placeholder until WOOAI-1620' );
 		$this->assertStringNotContainsString( 'Universal Commerce Protocol (UCP) is off', $html, 'UCP is the switch, not a listed check' );
-	}
-
-	/**
-	 * @testdox The switch message counts failing required checks, singular for one, and says ready for none.
-	 */
-	public function test_on_message_counts(): void {
-		$on_message = new \ReflectionMethod( AgenticCommerceSettingsPage::class, 'on_message' );
-		$on_message->setAccessible( true );
-
-		$this->assertStringContainsString( 'but 1 required setup check below still needs fixing.', $on_message->invoke( null, 1 ) );
-		$this->assertStringContainsString( 'but 3 required setup checks below still need fixing.', $on_message->invoke( null, 3 ) );
-		$this->assertSame( 'AI agents can now find and shop your store.', $on_message->invoke( null, 0 ) );
 	}
 
 	/**
@@ -264,10 +252,13 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$page->output();
 		$html            = (string) ob_get_clean();
 		$current_section = '';
+		ob_start();
+		$page->output();
+		$landing = (string) ob_get_clean();
 
+		$this->assertMatchesRegularExpression( '#>Active</mark>.*AI assistants can shop your store\. \d+ steps? left\..*section=shopping">Manage</a>#s', $landing, 'The landing card says AI shopping is on and how many steps are left' );
 		$this->assertStringContainsString( 'aria-checked="true"', $html );
-		$this->assertStringContainsString( 'required setup checks below still need fixing.', $html );
-		$this->assertStringNotContainsString( 'AI agents can now find and shop your store.</p>', $html );
+		$this->assertStringContainsString( '<p class="wc-agentic-commerce-ucp-message" role="status"></p>', $html, 'Status lists the required steps, so the switch adds no message' );
 	}
 
 	/**
@@ -412,7 +403,8 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 
 		$this->assertGreaterThan( 0, array_column( get_option( AgentReadiness::REPORT_OPTION )['checks'], 'count', 'id' )['image_alt_text'] ?? 0, 'The scan found the missing alt text' );
 		$this->assertMatchesRegularExpression( '#Can shopping channels list your products\?</h2> <mark[^>]*>\d+ issues?</mark>#', $html, 'Products have their own question' );
-		$this->assertStringContainsString( '<span>ChatGPT</span> <strong>0</strong> of 1 can be listed', $html );
+		$this->assertStringContainsString( '<span>ChatGPT</span> <p><strong>0</strong> of 1 can be listed</p>', $html, 'The count reads as one line, with no link of its own' );
+		$this->assertMatchesRegularExpression( '#section=readiness" aria-current="page">Readiness check</a>.*<div class="wc-agentic-commerce-toolbar"><p>Last checked #s', $html, 'Readiness check is the second tab, with when it last ran above the cards' );
 		$this->assertStringContainsString( 'Required by ChatGPT', $html );
 		$this->assertStringNotContainsString( 'Harder to find on', $html, 'Only channels that can\'t list the product are tagged' );
 		$this->assertStringContainsString( 'View 1 product</a>', $html );

@@ -9760,22 +9760,12 @@ body.woocommerce-settings-payments-section_legacy {
 		color: #50575e;
 	}
 
-	.wc-agentic-commerce-card--split {
-		display: grid;
-		grid-template-columns: 2fr 1fr;
+	.wc-agentic-commerce-address {
+		display: flex;
+		gap: 8px;
 
-		> div {
-			padding: 24px;
-		}
-
-		> div + div {
-			border-inline-start: 1px solid #f0f0f1;
-		}
-
-		h3 {
-			margin-block-end: 8px;
-			font-size: 11px;
-			text-transform: uppercase;
+		input {
+			flex: 1;
 		}
 	}
 
@@ -9849,15 +9839,46 @@ body.woocommerce-settings-payments-section_legacy {
 }
 
 .wc-agentic-commerce-header {
-	display: flex;
-	justify-content: space-between;
-	align-items: flex-start;
-	gap: 16px;
 	margin-block: 16px 20px;
+	border-block-end: 1px solid #dcdcde;
 
 	p {
 		margin: 4px 0 0;
 		color: #757575;
+	}
+}
+
+.wc-agentic-commerce-tabs {
+	display: flex;
+	gap: 16px;
+	margin-block-start: 12px;
+
+	a {
+		display: block;
+		padding: 8px 0;
+		color: #50575e;
+		text-decoration: none;
+		border-block-end: 2px solid transparent;
+		margin-block-end: -1px;
+	}
+
+	[aria-current] {
+		color: #1d2327;
+		font-weight: 600;
+		border-block-end-color: currentcolor;
+	}
+}
+
+.wc-agentic-commerce-toolbar {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: 16px;
+	margin-block-end: 16px;
+
+	> p {
+		margin: 0;
+		color: #50575e;
 	}
 }
 
@@ -9868,12 +9889,12 @@ body.woocommerce-settings-payments-section_legacy {
 		color: inherit;
 	}
 
-	[aria-current] {
+	> span:last-child {
 		font-weight: 600;
 	}
 }
 
-.wc-agentic-commerce-header__action {
+.wc-agentic-commerce-toolbar__action {
 	flex: none;
 	text-align: end;
 	max-inline-size: 320px;
@@ -9909,6 +9930,15 @@ body.woocommerce-settings-payments-section_legacy {
 		font-size: 1.6em;
 		font-weight: 400;
 		line-height: 1.2;
+	}
+
+	p {
+		margin: 0;
+		color: #50575e;
+	}
+
+	p strong {
+		color: #1d2327;
 	}
 }
 

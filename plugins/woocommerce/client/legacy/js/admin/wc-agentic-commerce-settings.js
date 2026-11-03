@@ -29,7 +29,7 @@
 					data: { enabled: enable },
 				} );
 				render( response.enabled );
-				message.textContent = response.enabled ? settings.i18n.on : '';
+				message.textContent = '';
 			} catch ( error ) {
 				render( ! enable );
 				message.textContent = ( error && error.message ) || settings.i18n.error;

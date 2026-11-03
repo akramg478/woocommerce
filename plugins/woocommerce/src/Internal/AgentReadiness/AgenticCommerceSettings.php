@@ -9,7 +9,7 @@ use Automattic\WooCommerce\Internal\RegisterHooksInterface;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Adds the WooCommerce > Settings > WooCommerce AI tab while the
+ * Adds the WooCommerce > Settings > AI tools tab while the
  * agent_readiness feature is enabled, and names the options it saves.
  *
  * @since 11.4.0
