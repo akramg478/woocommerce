@@ -217,7 +217,8 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 
 	/**
 	 * The scanned store checks the page shows: with UCP off nothing is served, so its checks
-	 * are left out, and a check whose prerequisite failed can't say anything.
+	 * are left out, a check whose prerequisite failed can't say anything, and checks waiting
+	 * on a later update (`pending`) aren't shown or counted.
 	 *
 	 * @param array<string, mixed>|null                                                                                                     $report Stored report, or null before the first scan.
 	 * @param array<int, array{id:string,ok:bool,blocks:string,level:string,name:string,label:string,why:string,fix:string,fix_url:string}> $checks Store conditions.
@@ -230,7 +231,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 			array_filter(
 				$scanned,
 				static function ( array $check ) use ( $results ): bool {
-					if ( ! UcpUtils::is_enabled() && 'ucp' === $check['blocks'] ) {
+					if ( ! empty( $check['pending'] ) || ( ! UcpUtils::is_enabled() && 'ucp' === $check['blocks'] ) ) {
 						return false;
 					}
 					$needs = self::CHECK_NEEDS[ $check['id'] ] ?? null;
@@ -536,8 +537,9 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	}
 
 	/**
-	 * The Status card: a badge, then the setup checks grouped into Required, Recommended and Done.
-	 * Each open check says what to do and links to where to do it. UCP itself is the switch, so it is not listed.
+	 * The Status card: a badge, then the open setup checks in one list, required ones first and
+	 * marked Required. Each says why it matters and links to where to fix it. Completed checks fold
+	 * behind "Show N completed steps". UCP itself is the switch, so it is not listed.
 	 *
 	 * @param array<int, array{id:string,ok:bool,blocks:string,level:string,name:string,label:string,why:string,fix:string,fix_url:string}> $checks           Store conditions.
 	 * @param string                                                                                                                        $status           UcpSwitch status.
@@ -551,18 +553,11 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 			UcpSwitch::STATUS_OFF             => 'off',
 			UcpSwitch::STATUS_NEEDS_ATTENTION => 'fix',
 		);
-		$groups   = array(
-			'required'    => array( __( 'Required', 'woocommerce' ), array() ),
-			'recommended' => array( __( 'Recommended', 'woocommerce' ), array() ),
-			'done'        => array( __( 'Done', 'woocommerce' ), array() ),
-		);
-		foreach ( $checks as $check ) {
-			if ( 'ucp_on' === $check['id'] ) {
-				continue;
-			}
-			$group                 = $check['ok'] ? 'done' : ( StoreConditions::LEVEL_REQUIRED === $check['level'] ? 'required' : 'recommended' );
-			$groups[ $group ][1][] = $check;
-		}
+		$steps    = array_values( array_filter( $checks, static fn( array $check ): bool => 'ucp_on' !== $check['id'] ) );
+		$done     = array_filter( $steps, static fn( array $check ): bool => $check['ok'] );
+		$open     = array_diff_key( $steps, $done );
+		// Required first; usort keeps the order within each level.
+		usort( $open, static fn( array $a, array $b ): int => ( StoreConditions::LEVEL_REQUIRED === $b['level'] ) <=> ( StoreConditions::LEVEL_REQUIRED === $a['level'] ) );
 		$summary = $failing_required > 0
 			/* translators: %d: number of failing required setup checks. */
 			? sprintf( _n( '%d required step to finish so agents can shop your store.', '%d required steps to finish so agents can shop your store.', $failing_required, 'woocommerce' ), $failing_required )
@@ -576,41 +571,28 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 				</div>
 				<mark class="wc-agentic-commerce-badge wc-agentic-commerce-badge--<?php echo esc_attr( $classes[ $status ] ); ?> wc-agentic-commerce-status"><?php echo esc_html( $statuses[ $status ] ); ?></mark>
 			</div>
-			<?php foreach ( $groups as $id => $group ) : ?>
-				<?php
-				if ( array() === $group[1] ) {
-					continue;
+			<?php
+			if ( array() !== $open ) {
+				echo '<ul class="wc-agentic-commerce-items wc-agentic-commerce-steps">';
+				foreach ( $open as $check ) {
+					$action   = $this->check_action( $check );
+					$required = StoreConditions::LEVEL_REQUIRED === $check['level'];
+					$title    = '' === $action[2] ? esc_html( $action[0] ) : '<a href="' . esc_url( $action[2] ) . '">' . esc_html( $action[0] ) . '</a>';
+					self::render_item( $required ? 'required' : 'open', $title . ( $required ? ' <mark class="wc-agentic-commerce-badge wc-agentic-commerce-badge--fix">' . esc_html__( 'Required', 'woocommerce' ) . '</mark>' : '' ), array( esc_html( $action[1] ) ) );
 				}
-				$heading = sprintf( '%1$s <span class="wc-agentic-commerce-count">%2$s</span>', esc_html( $group[0] ), esc_html( number_format_i18n( count( $group[1] ) ) ) );
-				?>
-				<?php if ( 'done' === $id ) : ?>
-					<details class="wc-agentic-commerce-group wc-agentic-commerce-group--done">
-						<summary class="wc-agentic-commerce-group__title"><?php echo wp_kses_post( $heading ); ?></summary>
-						<ul>
-							<?php foreach ( $group[1] as $check ) : ?>
-								<li class="wc-agentic-commerce-check wc-agentic-commerce-check--done"><span class="dashicons dashicons-yes-alt" aria-hidden="true"></span><span><?php echo esc_html( $check['name'] ); ?></span></li>
-							<?php endforeach; ?>
-						</ul>
-					</details>
-				<?php else : ?>
-					<div class="wc-agentic-commerce-group wc-agentic-commerce-group--<?php echo esc_attr( $id ); ?>">
-						<h3 class="wc-agentic-commerce-group__title"><?php echo wp_kses_post( $heading ); ?></h3>
-						<ul>
-							<?php foreach ( $group[1] as $check ) : ?>
-								<?php $action = $this->check_action( $check ); ?>
-								<li class="wc-agentic-commerce-check wc-agentic-commerce-check--<?php echo esc_attr( $id ); ?>">
-									<span class="wc-agentic-commerce-check__icon" aria-hidden="true"></span>
-									<span class="wc-agentic-commerce-check__text"><?php echo esc_html( $action[0] ); ?></span>
-									<?php if ( '' !== $action[2] ) : ?>
-										<a class="button" href="<?php echo esc_url( $action[2] ); ?>"><?php echo esc_html( $action[1] ); ?></a>
-									<?php endif; ?>
-								</li>
-							<?php endforeach; ?>
-						</ul>
-					</div>
-				<?php endif; ?>
-			<?php endforeach; ?>
-			<?php $this->render_result_links( $report, $checks ); ?>
+				echo '</ul>';
+			}
+			if ( array() !== $done ) {
+				/* translators: %d: number of completed setup steps. */
+				self::open_more( sprintf( _n( 'Show %d completed step', 'Show %d completed steps', count( $done ), 'woocommerce' ), count( $done ) ) );
+				echo '<ul class="wc-agentic-commerce-items">';
+				foreach ( $done as $check ) {
+					self::render_item( 'pass', esc_html( $check['name'] ), array() );
+				}
+				echo '</ul></details>';
+			}
+			$this->render_result_links( $report, $checks );
+			?>
 		</div>
 		<?php
 	}
@@ -671,9 +653,9 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 
 	/**
 	 * The badge on a question: how many issues, or that everything passed. A check that
-	 * couldn't run isn't an issue, and pending checks don't count as run.
+	 * couldn't run isn't an issue.
 	 *
-	 * @param array<int, array{ok:bool|null,pending?:string}> $checks The question's checks.
+	 * @param array<int, array{ok:bool|null}> $checks The question's checks.
 	 * @return array{0:string,1:string} Badge class and text.
 	 */
 	private static function group_badge( array $checks ): array {
@@ -682,11 +664,10 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 			/* translators: %d: number of issues. */
 			return array( 'check', sprintf( _n( '%d issue', '%d issues', $issues, 'woocommerce' ), $issues ) );
 		}
-		$ran = array_filter( $checks, static fn( array $check ): bool => empty( $check['pending'] ) );
-		if ( array() === $ran ) {
-			return array( 'off', array() === $checks ? __( 'Not checked yet', 'woocommerce' ) : __( 'Coming soon', 'woocommerce' ) );
+		if ( array() === $checks ) {
+			return array( 'off', __( 'Not checked yet', 'woocommerce' ) );
 		}
-		$passed = array() === array_filter( $ran, static fn( array $check ): bool => true !== $check['ok'] );
+		$passed = array() === array_filter( $checks, static fn( array $check ): bool => true !== $check['ok'] );
 		return $passed ? array( 'pass', __( 'All passed', 'woocommerce' ) ) : array( 'off', __( 'No issues', 'woocommerce' ) );
 	}
 
@@ -733,15 +714,16 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	/**
 	 * One row: an icon for its state, the title, then the lines under it.
 	 *
-	 * @param string             $state open, unknown or pass.
+	 * @param string             $state open, required, unknown or pass.
 	 * @param string             $title Escaped title HTML.
 	 * @param array<int, string> $lines Escaped HTML lines; empty ones are skipped.
 	 */
 	private static function render_item( string $state, string $title, array $lines ): void {
 		$states = array(
-			'open'    => __( 'Issue:', 'woocommerce' ),
-			'unknown' => __( 'Couldn\'t check:', 'woocommerce' ),
-			'pass'    => __( 'Passed:', 'woocommerce' ),
+			'open'     => __( 'Issue:', 'woocommerce' ),
+			'required' => __( 'Issue:', 'woocommerce' ),
+			'unknown'  => __( 'Couldn\'t check:', 'woocommerce' ),
+			'pass'     => __( 'Passed:', 'woocommerce' ),
 		);
 		echo '<li class="wc-agentic-commerce-item wc-agentic-commerce-item--' . esc_attr( $state ) . '"><span class="wc-agentic-commerce-item__icon" aria-hidden="true"></span><div>';
 		echo '<p class="wc-agentic-commerce-item__title"><span class="screen-reader-text">' . esc_html( $states[ $state ] ?? '' ) . ' </span>' . wp_kses_post( $title ) . '</p>';
@@ -799,7 +781,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	/**
 	 * The Readiness check section: a card per merchant question with the checks the last scan ran
 	 * on what the store returns, and one for the product checks before "Can they buy?". Problems show
-	 * first and passed checks are folded. Checks that are coming in a later update are left out.
+	 * first and passed checks are folded.
 	 *
 	 * @param array<int, array{id:string,ok:bool|null,blocks:string,group?:string,level:string,name:string,label?:string,why:string,fix:string,fix_url:string,conflict?:bool,pending?:string,seen_at?:string,plugins?:array<int,string>}> $checks   Scanned checks to show.
 	 * @param bool                                                                                                                                                                                                                        $launched Whether the store is launched.
@@ -814,7 +796,7 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 		);
 		foreach ( $checks as $check ) {
 			// A report from before checks named their question has no group; the next scan fills it in.
-			if ( empty( $check['pending'] ) && isset( $groups[ $check['group'] ?? '' ] ) ) {
+			if ( isset( $groups[ $check['group'] ?? '' ] ) ) {
 				$groups[ $check['group'] ][1][] = $check;
 			}
 		}
@@ -855,10 +837,10 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 	}
 
 	/**
-	 * What an open check asks the merchant to do: the action, the button text and where it goes.
+	 * What an open check asks the merchant to do: the action, why it matters and where to do it.
 	 * A policy page that is chosen but not published links to its editor.
 	 *
-	 * @param array{id:string,label:string,fix_url:string} $check Store condition.
+	 * @param array{id:string,label:string,why:string,fix_url:string} $check Store condition.
 	 * @return array{0:string,1:string,2:string}
 	 */
 	private function check_action( array $check ): array {
@@ -872,20 +854,19 @@ class AgenticCommerceSettingsPage extends \WC_Settings_Page {
 			$page_id = (int) get_option( $policies[ $check['id'] ][0] );
 			$edit    = $page_id > 0 && get_post( $page_id ) ? (string) get_edit_post_link( $page_id, 'raw' ) : '';
 			return '' !== $edit
-				? array( $policies[ $check['id'] ][1], __( 'Review and publish', 'woocommerce' ), $edit )
-				: array( $policies[ $check['id'] ][2], __( 'Choose a page', 'woocommerce' ), $check['fix_url'] );
+				? array( $policies[ $check['id'] ][1], __( 'It\'s still a draft. Agents only link to published pages.', 'woocommerce' ), $edit )
+				: array( $policies[ $check['id'] ][2], $check['why'], $check['fix_url'] );
 		}
 		$actions = array(
-			'launched'          => array( __( 'Take your store out of coming soon mode', 'woocommerce' ), __( 'Go to Site visibility', 'woocommerce' ) ),
-			'https'             => array( __( 'Move your store to HTTPS', 'woocommerce' ), __( 'Learn how', 'woocommerce' ) ),
-			'pretty_permalinks' => array( __( 'Choose a permalink structure other than Plain', 'woocommerce' ), __( 'Open permalinks', 'woocommerce' ) ),
-			'search_visible'    => array( __( 'Let search engines index your store', 'woocommerce' ), __( 'Open settings', 'woocommerce' ) ),
-			'guest_checkout'    => array( __( 'Allow guest checkout', 'woocommerce' ), __( 'Open settings', 'woocommerce' ) ),
-			'order_emails'      => array( __( 'Turn on order confirmation emails', 'woocommerce' ), __( 'Open settings', 'woocommerce' ) ),
-			'payment_method'    => array( __( 'Turn on a payment method', 'woocommerce' ), __( 'Open settings', 'woocommerce' ) ),
+			'launched'          => __( 'Take your store out of coming soon mode', 'woocommerce' ),
+			'https'             => __( 'Move your store to HTTPS', 'woocommerce' ),
+			'pretty_permalinks' => __( 'Choose a permalink structure other than Plain', 'woocommerce' ),
+			'search_visible'    => __( 'Let search engines index your store', 'woocommerce' ),
+			'guest_checkout'    => __( 'Allow guest checkout', 'woocommerce' ),
+			'order_emails'      => __( 'Turn on order confirmation emails', 'woocommerce' ),
+			'payment_method'    => __( 'Turn on a payment method', 'woocommerce' ),
 		);
-		$action  = $actions[ $check['id'] ] ?? array( $check['label'], __( 'Open settings', 'woocommerce' ) );
-		return array( $action[0], $action[1], $check['fix_url'] );
+		return array( $actions[ $check['id'] ] ?? $check['label'], $check['why'], $check['fix_url'] );
 	}
 
 	/**

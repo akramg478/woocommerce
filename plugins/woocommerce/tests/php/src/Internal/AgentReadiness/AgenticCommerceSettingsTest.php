@@ -117,7 +117,8 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$this->assertStringContainsString( 'aria-checked="false"', $html );
 		$this->assertStringNotContainsString( 'to turn this on', $html, 'Failing checks never block the switch' );
 		$this->assertMatchesRegularExpression( '/but \d+ required setup checks? below still needs? fixing\./', (string) wp_scripts()->get_data( 'wc-agentic-commerce-settings', 'data' ), 'Turning the switch on shows the failing checks without a reload' );
-		$this->assertStringContainsString( 'wc-agentic-commerce-check--required', $html, 'Failing required checks are in the Required group' );
+		$this->assertMatchesRegularExpression( '#wc-agentic-commerce-item--required.*>Required</mark>#', $html, 'Failing required checks are marked Required' );
+		$this->assertLessThan( strpos( $html, 'wc-agentic-commerce-item--open' ), strrpos( $html, 'wc-agentic-commerce-item--required' ), 'Required steps come first' );
 		$this->assertMatchesRegularExpression( '/(Choose a|Publish your) privacy policy page/', $html, 'An open check says what to do' );
 		$this->assertStringContainsString( 'Test your setup', $html, 'Placeholder until WOOAI-1619' );
 		$this->assertStringContainsString( '<h2>Security</h2>', $html, 'Placeholder until WOOAI-1620' );
@@ -145,8 +146,8 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$html = $this->render_page();
 
 		$this->assertStringContainsString( 'Everything agents need is set up.', $html );
-		$this->assertStringNotContainsString( 'wc-agentic-commerce-check--required', $html );
-		$this->assertStringContainsString( 'wc-agentic-commerce-group--done', $html );
+		$this->assertStringNotContainsString( 'wc-agentic-commerce-item--required', $html );
+		$this->assertMatchesRegularExpression( '#Show \d+ completed steps?</span>#', $html, 'Completed steps are folded' );
 		$this->assertStringContainsString( 'Privacy policy page is selected', $html, 'Done rows are named by their passing state' );
 		$this->assertStringNotContainsString( 'wc-agentic-commerce-notice', $html, 'No coming soon notice on a live store' );
 	}
@@ -178,7 +179,8 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 		$html = $this->render_page();
 
 		$this->assertStringContainsString( 'Publish your refund and returns policy page', $html );
-		$this->assertStringContainsString( 'Review and publish', $html );
+		$this->assertStringContainsString( 'It&#039;s still a draft. Agents only link to published pages.', $html );
+		$this->assertStringContainsString( 'post=' . $draft . '&amp;action=edit">Publish your refund and returns policy page</a>', $html, 'The step links to the page editor' );
 	}
 
 	/**
@@ -378,23 +380,18 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 	}
 
 	/**
-	 * @testdox A question's badge counts its issues; a check that couldn't run isn't an issue, and pending checks don't count as run.
+	 * @testdox A question's badge counts its issues; a check that couldn't run isn't an issue.
 	 */
 	public function test_group_badge(): void {
 		$badge = new \ReflectionMethod( AgenticCommerceSettingsPage::class, 'group_badge' );
 		$badge->setAccessible( true );
-		$text    = static fn( array $checks ): string => $badge->invoke( null, $checks )[1];
-		$row     = static fn( ?bool $ok ): array => array( 'ok' => $ok );
-		$pending = array(
-			'ok'      => null,
-			'pending' => 'WOOPRD-3912',
-		);
+		$text = static fn( array $checks ): string => $badge->invoke( null, $checks )[1];
+		$row  = static fn( ?bool $ok ): array => array( 'ok' => $ok );
 
 		$this->assertSame( '2 issues', $text( array( $row( false ), $row( false ), $row( true ) ) ) );
 		$this->assertSame( '1 issue', $text( array( $row( false ), $row( null ) ) ) );
-		$this->assertSame( 'All passed', $text( array( $row( true ), $pending ) ) );
+		$this->assertSame( 'All passed', $text( array( $row( true ), $row( true ) ) ) );
 		$this->assertSame( 'No issues', $text( array( $row( true ), $row( null ) ) ), 'A check that could not run is not an issue, nor a pass' );
-		$this->assertSame( 'Coming soon', $text( array( $pending ) ) );
 		$this->assertSame( 'Not checked yet', $text( array() ) );
 	}
 
@@ -534,6 +531,7 @@ class AgenticCommerceSettingsTest extends WC_Unit_Test_Case {
 
 		$this->assertStringNotContainsString( 'product_shipping_schema', $html );
 		$this->assertStringNotContainsString( 'Coming soon', $html );
+		$this->assertMatchesRegularExpression( '#Readiness check</a> <mark[^>]*>1 issue</mark>#', $this->render_page(), 'Status counts the same checks' );
 		$this->assertMatchesRegularExpression( '#Can they buy\?</h2> <mark[^>]*>1 issue</mark>#', $html );
 		$this->assertStringContainsString( 'policy_pages_linked fix', $html );
 		$this->assertStringContainsString( '>Open settings</a>', $html );
